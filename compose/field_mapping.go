@@ -57,84 +57,28 @@ func (m *FieldMapping) String() string {
 	return sb.String()
 }
 
-func From(from string) *FieldMapping {
+// FromField creates a FieldMapping that maps a single predecessor field to the entire successor input.
+// This is an exclusive mapping - once set, no other field mappings can be added since the successor input
+// has already been fully mapped.
+func FromField(from string) *FieldMapping {
 	return &FieldMapping{
 		from: from,
 	}
 }
-func To(to string) *FieldMapping {
+
+// ToField creates a FieldMapping that maps the entire predecessor output to a single successor field
+func ToField(to string) *FieldMapping {
 	return &FieldMapping{
 		to: to,
 	}
 }
-func FromTo(from, to string) *FieldMapping {
+
+// MapFields creates a FieldMapping that maps a single predecessor field to a single successor field
+func MapFields(from, to string) *FieldMapping {
 	return &FieldMapping{
 		from: from,
 		to:   to,
 	}
-}
-
-type fieldMappingsOnEdge struct {
-	m map[string]map[string]*fieldMappingHandler
-}
-
-func (f *fieldMappingsOnEdge) set(from, to string, conv *fieldMappingHandler) {
-	if _, ok := f.m[to]; !ok {
-		f.m[to] = make(map[string]*fieldMappingHandler)
-	}
-	f.m[to][from] = conv
-}
-
-func (f *fieldMappingsOnEdge) needConvMap2Struct(to string) bool {
-	_, ok := f.m[to]
-	return ok
-}
-
-func (f *fieldMappingsOnEdge) execute(from, to string, output any, isStream bool) (any, bool, error) {
-	if _, ok := f.m[to]; ok {
-		if _, ok = f.m[to][from]; ok {
-			result, err := f.m[to][from].handle(output, isStream)
-			return result, true, err
-		}
-	}
-	return output, false, nil
-}
-
-type fieldMappingHandler struct {
-	invoke    func(output any) (map[FieldMapping]any, error)
-	transform func(output streamReader) *schema.StreamReader[map[FieldMapping]any]
-	checkers  map[FieldMapping]func(value any) (any, error)
-}
-
-func (f *fieldMappingHandler) handle(output any, isStream bool) (any, error) {
-	if isStream {
-		return packStreamReader(schema.StreamReaderWithConvert(f.transform(output.(streamReader)), func(t map[FieldMapping]any) (map[FieldMapping]any, error) {
-			for k, v := range t {
-				if checker, ok := f.checkers[k]; ok {
-					nValue, checkErr := checker(v)
-					if checkErr != nil {
-						return nil, fmt.Errorf("field mapping runtime check fail: %w", checkErr)
-					}
-					t[k] = nValue
-				}
-			}
-			return t, nil
-		})), nil
-	}
-	nOutput, err := f.invoke(output)
-	if err != nil {
-		return nil, fmt.Errorf("handle field mapping fail, conv output to map fail: %w", err)
-	}
-	for k, v := range nOutput {
-		if checker, ok := f.checkers[k]; ok {
-			nValue, checkErr := checker(v)
-			if checkErr != nil {
-				return nil, fmt.Errorf("field mapping runtime check fail: %w", checkErr)
-			}
-			nOutput[k] = nValue
-		}
-	}
-	return nOutput, nil
 }
 
 func buildFieldMappingConverter[I any]() func(input any) (any, error) {
@@ -162,6 +106,11 @@ func buildStreamFieldMappingConverter[I any]() func(input streamReader) streamRe
 }
 
 func convertTo[T any](mappings map[string]any) (T, error) {
+	if _, ok := mappings[""]; ok {
+		// to the entire successor input
+		return mappings[""].(T), nil
+	}
+
 	t := generic.NewInstance[T]()
 
 	var (
