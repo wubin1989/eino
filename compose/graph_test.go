@@ -1701,3 +1701,38 @@ func TestHandlerTypeValidate(t *testing.T) {
 	}), WithOutputKey("output"))
 	assert.NoError(t, err)
 }
+
+func TestMultiPredecessorBranch(t *testing.T) {
+	g := NewGraph[map[string]any, map[string]any]()
+	_ = g.AddLambdaNode("lambda1", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
+		return map[string]any{"lambda3": true}, nil
+	}))
+	_ = g.AddLambdaNode("lambda2", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
+		return map[string]any{"lambda4": true}, nil
+	}))
+	_ = g.AddLambdaNode("lambda3", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
+		return input, nil
+	}))
+	_ = g.AddLambdaNode("lambda4", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
+		return input, nil
+	}))
+
+	branch := NewGraphBranch(func(ctx context.Context, in map[string]any) (endNode string, err error) {
+		if in["lambda3"] != nil {
+			return "lambda3", nil
+		}
+		return "lambda4", nil
+	}, map[string]bool{"lambda3": true, "lambda4": true})
+
+	_ = g.AddBranch("lambda1", branch)
+	_ = g.AddBranch("lambda2", branch)
+	_ = g.AddEdge("lambda3", END)
+	_ = g.AddEdge("lambda4", END)
+	_ = g.AddEdge(START, "lambda1")
+	_ = g.AddEdge(START, "lambda2")
+	r, err := g.Compile(context.Background(), WithNodeTriggerMode(AllPredecessor))
+	assert.NoError(t, err)
+	result, err := r.Invoke(context.Background(), map[string]any{"lambda3": true})
+	assert.NoError(t, err)
+	assert.Equal(t, result, map[string]any{"lambda3": true, "lambda4": true})
+}

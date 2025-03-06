@@ -586,6 +586,31 @@ func TestFanInToSameDest(t *testing.T) {
 	})
 }
 
+func TestBranch(t *testing.T) {
+	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
+		wf := NewWorkflow[string, string]()
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + in, nil
+		}))
+		wf.AddBranch([]string{START}, func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START].(string) == "hello" {
+				return "1", nil
+			}
+			return END, nil
+		}, map[string]map[string][]*FieldMapping{
+			"1": {
+				START: {},
+			},
+			END: {
+				START: {},
+			},
+		})
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		_ = r
+	})
+}
+
 type goodInterface interface {
 	GOOD()
 }

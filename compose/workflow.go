@@ -18,6 +18,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	"github.com/cloudwego/eino/components/document"
@@ -27,6 +28,7 @@ import (
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/internal/generic"
+	"github.com/cloudwego/eino/schema"
 )
 
 // WorkflowNode is the node of the Workflow.
@@ -38,7 +40,10 @@ type WorkflowNode struct {
 // Workflow is wrapper of Graph, replacing AddEdge with declaring FieldMapping between one node's output and current node's input.
 // Under the hood it uses NodeTriggerMode(AllPredecessor), so does not support branches or cycles.
 type Workflow[I, O any] struct {
-	g *graph
+	g             *graph
+	branchCnt     int
+	workflowNodes map[string]*WorkflowNode
+	err           error
 }
 
 // NewWorkflow creates a new Workflow.
@@ -54,6 +59,7 @@ func NewWorkflow[I, O any](opts ...NewGraphOption) *Workflow[I, O] {
 			options.withState,
 			options.stateType,
 		),
+		workflowNodes: make(map[string]*WorkflowNode),
 	}
 
 	return wf
@@ -155,12 +161,110 @@ func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *W
 	return wf
 }
 
+func (wf *Workflow[I, O]) AddBranch(fromNodeKeys []string,
+	condition func(ctx context.Context, in map[string]any) (string, error),
+	endNodesWithMappings map[string]map[string][]*FieldMapping) *Workflow[I, O] {
+
+	if wf.err != nil {
+		return wf
+	}
+
+	i := func(ctx context.Context, in map[string]any, opts ...any) (map[string]any, error) {
+		return in, nil
+	}
+
+	t := func(ctx context.Context, in *schema.StreamReader[map[string]any], opts ...any) (*schema.StreamReader[map[string]any], error) {
+		return in, nil
+	}
+
+	lambda := anyLambda(i, nil, nil, t)
+
+	wf.branchCnt++
+
+	// create a lambda node before branch
+	beforeBranchNode := wf.AddLambdaNode(fmt.Sprintf("before_branch_%d", wf.branchCnt), lambda)
+	for _, fromNodeKey := range fromNodeKeys {
+		beforeBranchNode.AddInput(fromNodeKey, ToField(fromNodeKey))
+	}
+
+	// create a lambda node between the branch and each successor
+	endNode2AfterBranchNode := make(map[string]string, len(endNodesWithMappings))
+	for endNodeKey, from2Mappings := range endNodesWithMappings {
+		afterBranchNode := wf.AddLambdaNode(fmt.Sprintf("between_branch_%d_%s", wf.branchCnt, endNodeKey), lambda)
+		endNode2AfterBranchNode[endNodeKey] = afterBranchNode.key
+		endNode := wf.workflowNodes[endNodeKey]
+		if endNode == nil && endNodeKey != END {
+			wf.err = fmt.Errorf("end node %s needs to be added before adding to branch", endNodeKey)
+			return wf
+		}
+
+		for from, mappings := range from2Mappings {
+			newMappings := make([]*FieldMapping, 0, len(mappings))
+			for _, mapping := range mappings {
+				newMappings = append(newMappings, &FieldMapping{
+					from: fmt.Sprintf("%s%s%s", from, pathSeparator, mapping.from),
+					to:   mapping.to,
+				})
+			}
+
+			if len(newMappings) == 0 { // normal edge, convert to mapping
+				newMappings = append(newMappings, &FieldMapping{
+					from: fmt.Sprintf("%s", from),
+				})
+			}
+
+			if endNodeKey == END {
+				wf.AddEnd(afterBranchNode.key, newMappings...)
+			} else if endNode != nil {
+				endNode.AddInput(afterBranchNode.key, newMappings...)
+			}
+
+		}
+	}
+
+	cond := func(ctx context.Context, in map[string]any, opts ...any) (string, error) {
+		originalEndNode, err := condition(ctx, in)
+		if err != nil {
+			return "", err
+		}
+
+		afterBranchNode, ok := endNode2AfterBranchNode[originalEndNode]
+		if !ok {
+			return "", fmt.Errorf("end node %s not found for branch", originalEndNode)
+		}
+
+		return afterBranchNode, nil
+	}
+
+	r := runnableLambda(cond, nil, nil, nil, false)
+
+	afterEndNodeSet := make(map[string]bool, len(endNode2AfterBranchNode))
+	for _, afterBranchNode := range endNode2AfterBranchNode {
+		afterEndNodeSet[afterBranchNode] = true
+	}
+
+	graphBranch := &GraphBranch{
+		condition: r,
+		endNodes:  afterEndNodeSet,
+	}
+
+	_ = wf.g.AddBranch(beforeBranchNode.key, graphBranch)
+
+	return wf
+}
+
 func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOptions) (*composableRunnable, error) {
+	if wf.err != nil {
+		return nil, wf.err
+	}
+
 	return wf.g.compile(ctx, options)
 }
 
 func (wf *Workflow[I, O]) initNode(key string) *WorkflowNode {
-	return &WorkflowNode{g: wf.g, key: key}
+	n := &WorkflowNode{g: wf.g, key: key}
+	wf.workflowNodes[key] = n
+	return n
 }
 
 func (wf *Workflow[I, O]) inputConverter() handlerPair {
