@@ -295,7 +295,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[*structB, string]()
 		wf.AddEnd(START, FromFieldPath([]string{"F1", "F2"}))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("from map.map.field", func(t *testing.T) {
@@ -358,7 +358,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[map[string]*structA, string]()
 		wf.AddEnd(START, FromFieldPath([]string{"F1", "F2"}))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("from map[string]any.field", func(t *testing.T) {
@@ -405,7 +405,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[string, *structB]()
 		wf.AddEnd(START, ToFieldPath([]string{"F1", "F2"}))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("to map.map.field", func(t *testing.T) {
@@ -424,7 +424,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf1 := NewWorkflow[string, map[string]map[string]int]()
 		wf1.AddEnd(START, ToFieldPath([]string{"F1", "F1"}))
 		_, err = wf1.Compile(ctx)
-		assert.ErrorContains(t, err, "field[string]-[int] must not be assignable")
+		assert.ErrorContains(t, err, "field[string]-[int] is absolutely not assignable")
 	})
 
 	t.Run("to struct.map.field", func(t *testing.T) {
@@ -522,7 +522,7 @@ func TestWorkflowCompile(t *testing.T) {
 		w.AddToolsNode("1", &ToolsNode{}).AddInput(START)
 		w.AddEnd("1")
 		_, err := w.Compile(ctx)
-		assert.ErrorContains(t, err, "mismatch")
+		assert.ErrorContains(t, err, "is absolutely not assignable")
 	})
 
 	t.Run("predecessor's output not struct/struct ptr/map, mapping has FromField", func(t *testing.T) {
@@ -557,7 +557,7 @@ func TestWorkflowCompile(t *testing.T) {
 		})).AddInput(START)
 		w.AddEnd("1", ToField("to"))
 		_, err := w.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.FieldMapping] has an unexported field[to]")
+		assert.ErrorContains(t, err, "has an unexported field[to]")
 	})
 
 	t.Run("duplicate node key", func(t *testing.T) {
@@ -615,8 +615,160 @@ func TestFanInToSameDest(t *testing.T) {
 			return in, nil
 		}), WithOutputKey("B")).AddInput(START, FromField("B"))
 		wf.AddEnd("1", ToField("F")).AddEnd("2", ToField("F"))
-		_, err := wf.Compile(context.Background())
-		assert.ErrorContains(t, err, "duplicate mapping target field")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), in{A: "hello", B: 1})
+		assert.NoError(t, err)
+		assert.Equal(t, dest{F: map[string]any{"A": "hello", "B": 1}}, out)
+	})
+}
+
+func TestIndirectEdge(t *testing.T) {
+	wf := NewWorkflow[string, map[string]any]()
+
+	wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+		return in + "_" + in, nil
+	})).AddInput(START)
+
+	wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in map[string]string) (output string, err error) {
+		return in["1"] + "_" + in[START], nil
+	})).AddInput("1", ToField("1")).
+		AddInputWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
+
+	wf.AddEnd("2", ToField("2")).
+		AddEndWithOptions("1", []*FieldMapping{ToField("1")}, WithNoDirectDependency())
+
+	r, err := wf.Compile(context.Background())
+	assert.NoError(t, err)
+	out, err := r.Invoke(context.Background(), "query")
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{"1": "query_query", "2": "query_query_query"}, out)
+}
+
+func TestDependencyWithNoInput(t *testing.T) {
+	t.Run("simple case", func(t *testing.T) {
+		wf := NewWorkflow[string, string]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return "useless", nil
+		})).AddInput(START)
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_done", nil
+		})).AddDependency("0").AddInputWithOptions(START, nil, WithNoDirectDependency())
+		wf.AddEnd("1")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello_done", out)
+	})
+
+	t.Run("simple control flow: [Start] --> [Node '0'] --> [End]", func(t *testing.T) {
+		// [Start] --> [Node "0"] --> [End]
+		wf := NewWorkflow[map[string]any, map[string]any]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in map[string]any) (output map[string]any, err error) {
+			return map[string]any{
+				"result":    "result from node 0",
+				"result_in": in,
+			}, nil
+		})).AddDependency(START)
+		wf.AddEnd("0", ToField("final_result"))
+		wf.AddEndWithOptions(START, []*FieldMapping{ToField("final_from_start")}, WithNoDirectDependency())
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		ret, err := r.Invoke(context.Background(), map[string]any{
+			"input": "hello",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"final_result": map[string]any{
+				"result":    "result from node 0",
+				"result_in": map[string]any{},
+			},
+			"final_from_start": map[string]any{
+				"input": "hello",
+			},
+		}, ret)
+	})
+}
+
+func TestPrefilledValue(t *testing.T) {
+	t.Run("prefill map", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in map[string]any) (output map[string]any, err error) {
+			return in, nil
+		})).AddInput(START, ToField(START)).SetStaticValue(FieldPath{"prefilled"}, "yo-ho")
+		wf.AddEnd("0")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"prefilled": "yo-ho", START: "hello"}, out)
+	})
+}
+
+func TestBranch(t *testing.T) {
+	ctx := context.Background()
+	t.Run("simple branch: one predecessor, two successor, one of them is END", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		})).AddInputWithOptions(START, nil, WithNoDirectDependency())
+
+		branch := NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START] == "hello" {
+				return "1", nil
+			}
+			return END, nil
+		}, map[string]bool{
+			"1": true,
+			END: true,
+		})
+		wf.AddBranch("branch_1", branch).AddInput(START, ToField(START))
+		wf.AddEnd("1", ToField("1")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
+		r, err := wf.Compile(ctx)
+		assert.NoError(t, err)
+		out, err := r.Invoke(ctx, "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"1":   "hello_hello",
+			START: "hello",
+		}, out)
+		out, err = r.Invoke(ctx, "world")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			START: "world",
+		}, out)
+	})
+
+	t.Run("multiple predecessors", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		})).AddInput(START)
+		wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		})).AddInputWithOptions("1", nil, WithNoDirectDependency())
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		})).AddInput(START)
+		wf.AddBranch("branch_1", NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START].(string) == "hello" {
+				return "2", nil
+			}
+			return END, nil
+		}, map[string]bool{
+			"2": true,
+			END: true,
+		})).AddInput(START, ToField(START)).AddInput("1", ToField("1")).AddDependency("0")
+		wf.AddEnd("2", ToField("2")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
+		r, err := wf.Compile(ctx)
+		assert.NoError(t, err)
+		out, err := r.Invoke(ctx, "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"2": "hello_hello_hello_hello", START: "hello"}, out)
+		out, err = r.Invoke(ctx, "world")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{START: "world"}, out)
 	})
 }
 

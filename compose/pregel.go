@@ -19,9 +19,10 @@ package compose
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
-func pregelChannelBuilder(_ []string) channel {
+func pregelChannelBuilder(_ []string, _ reflect.Type) channel {
 	return &pregelChannel{}
 }
 
@@ -72,3 +73,5 @@ func (ch *pregelChannel) ready(_ context.Context) bool {
 func (ch *pregelChannel) reportSkip(_ []string) (bool, error) {
 	return false, nil
 }
+
+func (ch *pregelChannel) reportDone(_ string) error { return nil }
