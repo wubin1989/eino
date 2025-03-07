@@ -581,16 +581,22 @@ func TestFanInToSameDest(t *testing.T) {
 			return in, nil
 		}), WithOutputKey("B")).AddInput(START, FromField("B"))
 		wf.AddEnd("1", ToField("F")).AddEnd("2", ToField("F"))
-		_, err := wf.Compile(context.Background())
-		assert.ErrorContains(t, err, "duplicate mapping target field")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), in{A: "hello", B: 1})
+		assert.NoError(t, err)
+		assert.Equal(t, dest{F: map[string]any{"A": "hello", "B": 1}}, out)
 	})
 }
 
 func TestBranch(t *testing.T) {
+	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
 		wf := NewWorkflow[string, string]()
-		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
-			return in + in, nil
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output map[string]any, err error) {
+			return map[string]any{
+				"output": in + "_" + in,
+			}, nil
 		}))
 		wf.AddBranch([]string{START}, func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START].(string) == "hello" {
@@ -605,9 +611,15 @@ func TestBranch(t *testing.T) {
 				START: {},
 			},
 		})
-		r, err := wf.Compile(context.Background())
+		wf.AddEnd("1", FromField("output"))
+		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
-		_ = r
+		out, err := r.Invoke(ctx, "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello_hello", out)
+		out, err = r.Invoke(ctx, "world")
+		assert.NoError(t, err)
+		assert.Equal(t, "world", out)
 	})
 }
 

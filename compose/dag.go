@@ -32,11 +32,6 @@ func dagChannelBuilder(dependencies []string) channel {
 	}
 }
 
-type waitPred struct {
-	key     string
-	skipped bool
-}
-
 type dagChannel struct {
 	values   map[string]any
 	waitList map[string]bool

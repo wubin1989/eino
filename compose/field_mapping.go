@@ -91,9 +91,9 @@ func MapFields(from, to string) *FieldMapping {
 
 func buildFieldMappingConverter[I any]() func(input any) (any, error) {
 	return func(input any) (any, error) {
-		in, ok := input.(map[string]any)
+		in, ok := input.(map[FieldMapping]any)
 		if !ok {
-			panic(newUnexpectedInputTypeErr(reflect.TypeOf(map[string]any{}), reflect.TypeOf(input)))
+			panic(newUnexpectedInputTypeErr(reflect.TypeOf(map[FieldMapping]any{}), reflect.TypeOf(input)))
 		}
 
 		return convertTo[I](in)
@@ -102,22 +102,22 @@ func buildFieldMappingConverter[I any]() func(input any) (any, error) {
 
 func buildStreamFieldMappingConverter[I any]() func(input streamReader) streamReader {
 	return func(input streamReader) streamReader {
-		s, ok := unpackStreamReader[map[string]any](input)
+		s, ok := unpackStreamReader[map[FieldMapping]any](input)
 		if !ok {
 			panic("mappingStreamAssign incoming streamReader chunk type not map[string]any")
 		}
 
-		return packStreamReader(schema.StreamReaderWithConvert(s, func(v map[string]any) (I, error) {
+		return packStreamReader(schema.StreamReaderWithConvert(s, func(v map[FieldMapping]any) (I, error) {
 			return convertTo[I](v)
 		}))
 	}
 }
 
-func convertTo[T any](mappings map[string]any) (T, error) {
-	if _, ok := mappings[""]; ok {
+func convertTo[T any](mappings map[FieldMapping]any) (T, error) {
+	/*if _, ok := mappings[""]; ok {
 		// to the entire successor input
 		return mappings[""].(T), nil
-	}
+	}*/
 
 	t := generic.NewInstance[T]()
 
@@ -126,8 +126,8 @@ func convertTo[T any](mappings map[string]any) (T, error) {
 		field2Values = make(map[string][]any)
 	)
 
-	for to, taken := range mappings {
-		field2Values[to] = append(field2Values[to], taken)
+	for mapping, taken := range mappings {
+		field2Values[mapping.to] = append(field2Values[mapping.to], taken)
 	}
 
 	for fieldName, values := range field2Values {
@@ -414,13 +414,13 @@ func checkAndExtractToMapKey(toMapKey string, output, toSet reflect.Value) (key 
 	return reflect.ValueOf(toMapKey), nil
 }
 
-func fieldMap(mappings []*FieldMapping) func(any) (map[string]any, error) {
-	return func(input any) (result map[string]any, err error) {
-		result = make(map[string]any, len(mappings))
+func fieldMap(mappings []*FieldMapping) func(any) (map[FieldMapping]any, error) {
+	return func(input any) (result map[FieldMapping]any, err error) {
+		result = make(map[FieldMapping]any, len(mappings))
 		var inputValue reflect.Value
 		for _, mapping := range mappings {
 			if len(mapping.from) == 0 {
-				result[mapping.to] = input
+				result[*mapping] = input
 				continue
 			}
 
@@ -459,7 +459,7 @@ func fieldMap(mappings []*FieldMapping) func(any) (map[string]any, error) {
 				}
 			}
 
-			result[mapping.to] = taken
+			result[*mapping] = taken
 		}
 
 		return result, nil
@@ -613,13 +613,15 @@ func validateFieldMapping(predecessorType reflect.Type, successorType reflect.Ty
 	}
 
 	checker := func(value any) (any, error) {
-		mValue := value.(map[string]any)
+		mValue := value.(map[FieldMapping]any)
 		var err error
 		for k, v := range fieldCheckers {
-			if _, ok := mValue[k]; ok {
-				mValue[k], err = v.invoke(mValue[k])
-				if err != nil {
-					return nil, err
+			for mapping := range mValue {
+				if mapping.to == k {
+					mValue[mapping], err = v.invoke(mValue[mapping])
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		}

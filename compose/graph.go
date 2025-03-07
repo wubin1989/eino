@@ -779,15 +779,6 @@ func (g *graph) compile(ctx context.Context, opt *graphCompileOptions) (*composa
 	}
 
 	for key := range g.fieldMappingRecords {
-		// not allowed to map multiple fields to the same field
-		toMap := make(map[string]bool)
-		for _, mapping := range g.fieldMappingRecords[key] {
-			if _, ok := toMap[mapping.to]; ok {
-				return nil, fmt.Errorf("duplicate mapping target field: %s of node[%s]", mapping.to, key)
-			}
-			toMap[mapping.to] = true
-		}
-
 		// add map to input converter
 		g.handlerPreNode[key] = append(g.handlerPreNode[key], g.getNodeInputFieldMappingConverter(key))
 	}
