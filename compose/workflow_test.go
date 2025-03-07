@@ -424,7 +424,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf1 := NewWorkflow[string, map[string]map[string]int]()
 		wf1.AddEnd(START, ToField("F1.F1"))
 		_, err = wf1.Compile(ctx)
-		assert.ErrorContains(t, err, "field[string]-[int] must not be assignable")
+		assert.ErrorContains(t, err, "field[string]-[int] is absolutely not assignable")
 	})
 
 	t.Run("to struct.map.field", func(t *testing.T) {
@@ -488,7 +488,7 @@ func TestWorkflowCompile(t *testing.T) {
 		w.AddToolsNode("1", &ToolsNode{}).AddInput(START)
 		w.AddEnd("1")
 		_, err := w.Compile(ctx)
-		assert.ErrorContains(t, err, "mismatch")
+		assert.ErrorContains(t, err, "is absolutely not assignable")
 	})
 
 	t.Run("predecessor's output not struct/struct ptr/map, mapping has FromField", func(t *testing.T) {
@@ -593,10 +593,8 @@ func TestBranch(t *testing.T) {
 	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
 		wf := NewWorkflow[string, string]()
-		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output map[string]any, err error) {
-			return map[string]any{
-				"output": in + "_" + in,
-			}, nil
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
 		}))
 		wf.AddBranch([]string{START}, func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START].(string) == "hello" {
@@ -611,7 +609,7 @@ func TestBranch(t *testing.T) {
 				START: {},
 			},
 		})
-		wf.AddEnd("1", FromField("output"))
+		wf.AddEnd("1")
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
 		out, err := r.Invoke(ctx, "hello")

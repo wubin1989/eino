@@ -540,9 +540,9 @@ func validateFieldMapping(predecessorType reflect.Type, successorType reflect.Ty
 	var fieldCheckers = make(map[string]handlerPair)
 
 	// check if mapping is legal
-	if isFromAll(mappings) && isToAll(mappings) {
+	/*if isFromAll(mappings) && isToAll(mappings) {
 		return nil, fmt.Errorf("invalid field mappings: from all fields to all, use common edge instead")
-	} else if !isToAll(mappings) && !validateStructOrMap(successorType) {
+	} else */if !isToAll(mappings) && !validateStructOrMap(successorType) {
 		// if user has not provided a specific struct type, graph cannot construct any struct in the runtime
 		return nil, fmt.Errorf("static check fail: successor input type should be struct or map, actual: %v", successorType)
 	} else if !isFromAll(mappings) && !validateStructOrMap(predecessorType) {
@@ -575,7 +575,7 @@ func validateFieldMapping(predecessorType reflect.Type, successorType reflect.Ty
 			checker := func(a any) (any, error) {
 				trueInType := reflect.TypeOf(a)
 				if !trueInType.AssignableTo(successorFieldType) {
-					return nil, fmt.Errorf("runtime check failed for mapping %s, field[%v]-[%v] must not be assignable", mapping, trueInType, successorFieldType)
+					return nil, fmt.Errorf("runtime check failed for mapping %s, field[%v]-[%v] is absolutely not assignable", mapping, trueInType, successorFieldType)
 				}
 				return a, nil
 			}
@@ -590,12 +590,12 @@ func validateFieldMapping(predecessorType reflect.Type, successorType reflect.Ty
 
 		at := checkAssignable(predecessorFieldType, successorFieldType)
 		if at == assignableTypeMustNot {
-			return nil, fmt.Errorf("static check failed for mapping %s, field[%v]-[%v] must not be assignable", mapping, predecessorFieldType, successorFieldType)
+			return nil, fmt.Errorf("static check failed for mapping %s, field[%v]-[%v] is absolutely not assignable", mapping, predecessorFieldType, successorFieldType)
 		} else if at == assignableTypeMay {
 			checker := func(a any) (any, error) {
 				trueInType := reflect.TypeOf(a)
 				if !trueInType.AssignableTo(successorFieldType) {
-					return nil, fmt.Errorf("runtime check failed for mapping %s, field[%v]-[%v] must not be assignable", mapping, trueInType, successorFieldType)
+					return nil, fmt.Errorf("runtime check failed for mapping %s, field[%v]-[%v] is absolutely not assignable", mapping, trueInType, successorFieldType)
 				}
 				return a, nil
 			}

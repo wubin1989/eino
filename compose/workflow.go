@@ -149,6 +149,11 @@ func (wf *Workflow[I, O]) AddLambdaNode(key string, lambda *Lambda, opts ...Grap
 }
 
 func (n *WorkflowNode) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowNode {
+	if len(inputs) == 0 {
+		inputs = append(inputs, &FieldMapping{
+			fromNodeKey: fromNodeKey,
+		})
+	}
 	_ = n.g.addEdgeWithMappings(fromNodeKey, n.key, inputs...)
 	return n
 }
@@ -157,6 +162,13 @@ func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *W
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
 	}
+
+	if len(inputs) == 0 {
+		inputs = append(inputs, &FieldMapping{
+			fromNodeKey: fromNodeKey,
+		})
+	}
+
 	_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
 	return wf
 }
