@@ -619,6 +619,38 @@ func TestBranch(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "world", out)
 	})
+
+	t.Run("multiple predecessors", func(t *testing.T) {
+		wf := NewWorkflow[string, string]()
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		})).AddInput(START)
+		wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_" + in, nil
+		}))
+		wf.AddBranch([]string{START, "1"}, func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START].(string) == "hello" {
+				return "2", nil
+			}
+			return END, nil
+		}, map[string]map[string][]*FieldMapping{
+			"2": {
+				"1": {},
+			},
+			END: {
+				START: {},
+			},
+		})
+		wf.AddEnd("2")
+		r, err := wf.Compile(ctx)
+		assert.NoError(t, err)
+		out, err := r.Invoke(ctx, "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello_hello_hello_hello", out)
+		out, err = r.Invoke(ctx, "world")
+		assert.NoError(t, err)
+		assert.Equal(t, "world", out)
+	})
 }
 
 type goodInterface interface {
