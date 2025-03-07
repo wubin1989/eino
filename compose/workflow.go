@@ -210,8 +210,8 @@ func (wf *Workflow[I, O]) AddBranch(fromNodeKeys []string,
 			return wf
 		}
 
+		newMappings := make([]*FieldMapping, 0)
 		for from, mappings := range from2Mappings {
-			newMappings := make([]*FieldMapping, 0, len(mappings))
 			for _, mapping := range mappings {
 				newMappings = append(newMappings, &FieldMapping{
 					from: fmt.Sprintf("%s%s%s", from, pathSeparator, mapping.from),
@@ -219,18 +219,17 @@ func (wf *Workflow[I, O]) AddBranch(fromNodeKeys []string,
 				})
 			}
 
-			if len(newMappings) == 0 { // normal edge, convert to mapping
+			if len(mappings) == 0 { // normal edge, convert to mapping
 				newMappings = append(newMappings, &FieldMapping{
 					from: fmt.Sprintf("%s", from),
 				})
 			}
+		}
 
-			if endNodeKey == END {
-				wf.AddEnd(afterBranchNode.key, newMappings...)
-			} else if endNode != nil {
-				endNode.AddInput(afterBranchNode.key, newMappings...)
-			}
-
+		if endNodeKey == END {
+			wf.AddEnd(afterBranchNode.key, newMappings...)
+		} else if endNode != nil {
+			endNode.AddInput(afterBranchNode.key, newMappings...)
 		}
 	}
 

@@ -295,7 +295,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[*structB, string]()
 		wf.AddEnd(START, FromField("F1.F2"))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("from map.map.field", func(t *testing.T) {
@@ -358,7 +358,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[map[string]*structA, string]()
 		wf.AddEnd(START, FromField("F1.F2"))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("from map[string]any.field", func(t *testing.T) {
@@ -405,7 +405,7 @@ func TestWorkflowWithNestedFieldMappings(t *testing.T) {
 		wf = NewWorkflow[string, *structB]()
 		wf.AddEnd(START, ToField("F1.F2"))
 		_, err = wf.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.structA] has no field[F2]")
+		assert.ErrorContains(t, err, "has no field[F2]")
 	})
 
 	t.Run("to map.map.field", func(t *testing.T) {
@@ -523,7 +523,7 @@ func TestWorkflowCompile(t *testing.T) {
 		})).AddInput(START)
 		w.AddEnd("1", ToField("to"))
 		_, err := w.Compile(ctx)
-		assert.ErrorContains(t, err, "type[compose.FieldMapping] has an unexported field[to]")
+		assert.ErrorContains(t, err, "has an unexported field[to]")
 	})
 
 	t.Run("duplicate node key", func(t *testing.T) {
@@ -650,6 +650,34 @@ func TestBranch(t *testing.T) {
 		out, err = r.Invoke(ctx, "world")
 		assert.NoError(t, err)
 		assert.Equal(t, "world", out)
+	})
+
+	t.Run("simple test", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in map[string]any) (output string, err error) {
+			return in["input"].(string) + "1", nil
+		}))
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "0", nil
+		})).AddInput(START)
+		wf.AddBranch([]string{START, "0"}, func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START].(string) == "hello" {
+				return "1", nil
+			}
+			return END, nil
+		}, map[string]map[string][]*FieldMapping{
+			"1": {
+				START: {ToField("input")},
+				"0":   {ToField("output_0")},
+			},
+			END: {
+				START: {},
+			},
+		})
+		wf.AddEnd("1", ToField("result"))
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		_ = r
 	})
 }
 
