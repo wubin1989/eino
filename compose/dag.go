@@ -98,20 +98,18 @@ func (ch *dagChannel) reportSkip(keys []string) (bool, error) {
 }
 
 func (ch *dagChannel) tryUpdateValue() error {
-	var validList []string
 	for key, skipped := range ch.waitList {
 		if _, ok := ch.values[key]; !ok && !skipped {
 			return nil
-		} else if !skipped {
-			validList = append(validList, key)
 		}
 	}
 
-	if len(validList) == 1 {
-		ch.value = ch.values[validList[0]]
+	values := mapToList(ch.values)
+	if len(values) == 1 {
+		ch.value = values[0]
 		return nil
 	}
-	v, err := mergeValues(mapToList(ch.values))
+	v, err := mergeValues(values)
 	if err != nil {
 		return err
 	}

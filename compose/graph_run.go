@@ -54,6 +54,7 @@ func newGraphCompileOptions(opts ...GraphCompileOption) *graphCompileOptions {
 type chanCall struct {
 	action          *composableRunnable
 	writeTo         []string
+	indirectWriteTo []string
 	writeToBranches []*GraphBranch
 
 	preProcessor, postProcessor *composableRunnable
@@ -238,9 +239,9 @@ func (r *runner) resolveCompletedTasks(ctx context.Context, completedTasks []*ta
 	writeChannelValues := make(map[string]map[string]any)
 	for _, t := range completedTasks {
 		// update channel & new_next_tasks
-		vs := copyItem(t.output, len(t.call.writeTo)+len(t.call.writeToBranches)*2)
+		vs := copyItem(t.output, len(t.call.writeTo)+len(t.call.indirectWriteTo)+len(t.call.writeToBranches)*2)
 		nextNodeKeys, err := r.calculateNext(ctx, t.nodeKey, t.call,
-			vs[len(t.call.writeTo)+len(t.call.writeToBranches):], isStream, cm)
+			vs[len(t.call.writeTo)+len(t.call.indirectWriteTo)+len(t.call.writeToBranches):], isStream, cm)
 		if err != nil {
 			return nil, fmt.Errorf("calculate next step fail, node: %s, error: %w", t.nodeKey, err)
 		}
@@ -264,8 +265,9 @@ func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan
 		runWrapper = runnableTransform
 	}
 
-	ret := make([]string, 0, len(startChan.writeTo))
+	ret := make([]string, 0, len(startChan.writeTo)+len(startChan.indirectWriteTo))
 	ret = append(ret, startChan.writeTo...)
+	ret = append(ret, startChan.indirectWriteTo...)
 
 	skippedNodes := make(map[string]struct{})
 	for i, branch := range startChan.writeToBranches {

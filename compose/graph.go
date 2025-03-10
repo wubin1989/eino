@@ -145,11 +145,12 @@ func (g graphRunType) String() string {
 }
 
 type graph struct {
-	nodes      map[string]*graphNode
-	edges      map[string][]string
-	branches   map[string][]*GraphBranch
-	startNodes []string
-	endNodes   []string
+	nodes         map[string]*graphNode
+	edges         map[string][]string
+	indirectEdges map[string][]string
+	branches      map[string][]*GraphBranch
+	startNodes    []string
+	endNodes      []string
 
 	toValidateMap map[string][]struct {
 		endNode  string
@@ -217,9 +218,10 @@ func newGraphFromGeneric[I, O any](
 
 func newGraph(cfg *newGraphConfig) *graph {
 	return &graph{
-		nodes:    make(map[string]*graphNode),
-		edges:    make(map[string][]string),
-		branches: make(map[string][]*GraphBranch),
+		nodes:         make(map[string]*graphNode),
+		edges:         make(map[string][]string),
+		indirectEdges: make(map[string][]string),
+		branches:      make(map[string][]*GraphBranch),
 
 		toValidateMap: make(map[string][]struct {
 			endNode  string
@@ -345,6 +347,14 @@ func (g *graph) addNode(key string, node *graphNode, options *graphAddNodeOpts) 
 }
 
 func (g *graph) addEdgeWithMappings(startNode, endNode string, mappings ...*FieldMapping) (err error) {
+	return g.addEdgeWithMappingsInternal(startNode, endNode, false, mappings...)
+}
+
+func (g *graph) addIndirectEdgeWithMappings(startNode, endNode string, mappings ...*FieldMapping) (err error) {
+	return g.addEdgeWithMappingsInternal(startNode, endNode, true, mappings...)
+}
+
+func (g *graph) addEdgeWithMappingsInternal(startNode, endNode string, asIndirectEdge bool, mappings ...*FieldMapping) (err error) {
 	if g.buildError != nil {
 		return g.buildError
 	}
@@ -362,11 +372,19 @@ func (g *graph) addEdgeWithMappings(startNode, endNode string, mappings ...*Fiel
 	if endNode == START {
 		return errors.New("START cannot be an end node")
 	}
+
+	for i := range g.indirectEdges[startNode] {
+		if g.indirectEdges[startNode][i] == endNode {
+			return fmt.Errorf("indirect edge[%s]-[%s] have been added yet", startNode, endNode)
+		}
+	}
+
 	for i := range g.edges[startNode] {
 		if g.edges[startNode][i] == endNode {
 			return fmt.Errorf("edge[%s]-[%s] have been added yet", startNode, endNode)
 		}
 	}
+
 	if _, ok := g.nodes[startNode]; !ok && startNode != START {
 		return fmt.Errorf("edge start node '%s' needs to be added to graph first", startNode)
 	}
@@ -379,12 +397,20 @@ func (g *graph) addEdgeWithMappings(startNode, endNode string, mappings ...*Fiel
 	if err != nil {
 		return err
 	}
-	g.edges[startNode] = append(g.edges[startNode], endNode)
-	if startNode == START {
-		g.startNodes = append(g.startNodes, endNode)
+
+	if asIndirectEdge {
+		g.indirectEdges[startNode] = append(g.indirectEdges[startNode], endNode)
+	} else {
+		g.edges[startNode] = append(g.edges[startNode], endNode)
 	}
-	if endNode == END {
-		g.endNodes = append(g.endNodes, startNode)
+
+	if !asIndirectEdge {
+		if startNode == START {
+			g.startNodes = append(g.startNodes, endNode)
+		}
+		if endNode == END {
+			g.endNodes = append(g.endNodes, startNode)
+		}
 	}
 
 	return nil
@@ -795,8 +821,9 @@ func (g *graph) compile(ctx context.Context, opt *graphCompileOptions) (*composa
 
 		writeTo := g.edges[name]
 		chCall := &chanCall{
-			action:  r,
-			writeTo: writeTo,
+			action:          r,
+			writeTo:         writeTo,
+			indirectWriteTo: g.indirectEdges[name],
 
 			preProcessor:  node.nodeInfo.preProcessor,
 			postProcessor: node.nodeInfo.postProcessor,
@@ -839,6 +866,7 @@ func (g *graph) compile(ctx context.Context, opt *graphCompileOptions) (*composa
 
 	inputChannels := &chanCall{
 		writeTo:         g.edges[START],
+		indirectWriteTo: g.indirectEdges[START],
 		writeToBranches: make([]*GraphBranch, len(g.branches[START])),
 	}
 	copy(inputChannels.writeToBranches, g.branches[START])

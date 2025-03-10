@@ -18,7 +18,6 @@ package compose
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
 	"github.com/cloudwego/eino/components/document"
@@ -28,22 +27,23 @@ import (
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/internal/generic"
-	"github.com/cloudwego/eino/schema"
 )
 
 // WorkflowNode is the node of the Workflow.
 type WorkflowNode struct {
-	g   *graph
-	key string
+	g         *graph
+	key       string
+	addInputs []func()
 }
 
 // Workflow is wrapper of Graph, replacing AddEdge with declaring FieldMapping between one node's output and current node's input.
 // Under the hood it uses NodeTriggerMode(AllPredecessor), so does not support branches or cycles.
 type Workflow[I, O any] struct {
-	g             *graph
-	branchCnt     int
-	workflowNodes map[string]*WorkflowNode
-	err           error
+	g                *graph
+	branchCnt        int
+	workflowNodes    map[string]*WorkflowNode
+	err              error
+	workflowBranches map[string]*WorkflowBranch
 }
 
 // NewWorkflow creates a new Workflow.
@@ -70,6 +70,27 @@ func (wf *Workflow[I, O]) Compile(ctx context.Context, opts ...GraphCompileOptio
 		opts = append([]GraphCompileOption{WithGraphCompileCallbacks(globalGraphCompileCallbacks...)}, opts...)
 	}
 	option := newGraphCompileOptions(opts...)
+
+	for _, n := range wf.workflowNodes {
+		for _, addInput := range n.addInputs {
+			addInput()
+		}
+	}
+
+	for _, wb := range wf.workflowBranches {
+		passthrough := wf.addPassthroughNode(wb.branchKey)
+		for fromNodeKey, inputs := range wb.inputs {
+			if wb.inputAsIndirectEdge[fromNodeKey] {
+				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithIndirectEdgeEnable())
+			} else {
+				passthrough.AddInput(fromNodeKey, inputs...)
+			}
+		}
+
+		_ = wf.g.AddBranch(passthrough.key, wb.GraphBranch)
+	}
+
+	// TODO: check indirect edges are legal
 
 	cr, err := wf.g.compile(ctx, option)
 	if err != nil {
@@ -148,17 +169,43 @@ func (wf *Workflow[I, O]) AddLambdaNode(key string, lambda *Lambda, opts ...Grap
 	return wf.initNode(key)
 }
 
-func (n *WorkflowNode) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowNode {
-	if len(inputs) == 0 {
-		inputs = append(inputs, &FieldMapping{
-			fromNodeKey: fromNodeKey,
-		})
-	}
-	_ = n.g.addEdgeWithMappings(fromNodeKey, n.key, inputs...)
-	return n
+func (wf *Workflow[I, O]) addPassthroughNode(key string, opts ...GraphAddNodeOpt) *WorkflowNode {
+	_ = wf.g.AddPassthroughNode(key, opts...)
+	return wf.initNode(key)
 }
 
-func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *Workflow[I, O] {
+// AddInput 创建两个节点的流转关系（对应 UI 中的边），同时在两个节点间创建数据映射（对应节点 UI 里的输入配置）.
+func (n *WorkflowNode) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowNode {
+	return n.addInput(fromNodeKey, inputs)
+}
+
+type workflowAddInputOpts struct {
+	asIndirectEdge bool
+}
+
+type WorkflowAddInputOpt func(*workflowAddInputOpts)
+
+// WithIndirectEdgeEnable AddInput 时，创建数据映射，但不创建控制流转关系.
+// 即：当前 Node 可以引用特定前序 Node 的输出，但该前序 Node 的执行状态不影响当前 Node 是否可开始执行。
+// 注意： 如果当前 Node 和存在数据映射关系的前序 Node 之间存在 branch，则务必通过 WithIndirectEdgeEnable 转化为 indirect edge.
+// 注意: 当前 Node 必须为存在数据映射关系的 Node 的拓扑后续，否则数据映射关系无法成立。
+// 注意： 使用此 Option 会导致失去节点间控制流转关系。
+func WithIndirectEdgeEnable() WorkflowAddInputOpt {
+	return func(opt *workflowAddInputOpts) {
+		opt.asIndirectEdge = true
+	}
+}
+
+func (n *WorkflowNode) AddInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowNode {
+	return n.addInput(fromNodeKey, inputs, opts...)
+}
+
+func (n *WorkflowNode) addInput(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowNode {
+	options := &workflowAddInputOpts{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
 	}
@@ -169,97 +216,100 @@ func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *W
 		})
 	}
 
-	_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
-	return wf
+	if options.asIndirectEdge {
+		n.addInputs = append(n.addInputs, func() {
+			_ = n.g.addIndirectEdgeWithMappings(fromNodeKey, n.key, inputs...)
+		})
+	} else {
+		n.addInputs = append(n.addInputs, func() {
+			_ = n.g.addEdgeWithMappings(fromNodeKey, n.key, inputs...)
+		})
+	}
+
+	return n
 }
 
-func (wf *Workflow[I, O]) AddBranch(fromNodeKeys []string,
-	condition func(ctx context.Context, in map[string]any) (string, error),
-	endNodesWithMappings map[string]map[string][]*FieldMapping) *Workflow[I, O] {
+type WorkflowBranch struct {
+	branchKey string
+	*GraphBranch
+	inputs              map[string][]*FieldMapping
+	inputAsIndirectEdge map[string]bool
+}
 
-	if wf.err != nil {
-		return wf
+// AddBranch 创建一个分支（选择器），同时在 passthrough 和 endNodes 之间创建流转关系，不配置 endNodes 的数据映射
+func (wf *Workflow[I, O]) AddBranch(branchKey string, branch *GraphBranch) *WorkflowBranch {
+	return &WorkflowBranch{
+		branchKey:           branchKey,
+		GraphBranch:         branch,
+		inputs:              make(map[string][]*FieldMapping),
+		inputAsIndirectEdge: make(map[string]bool),
+	}
+}
+
+func (wb *WorkflowBranch) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowBranch {
+	return wb.addInputWithOptions(fromNodeKey, inputs)
+}
+
+func (wb *WorkflowBranch) AddInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowBranch {
+	return wb.addInputWithOptions(fromNodeKey, inputs, opts...)
+}
+
+func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowBranch {
+	options := &workflowAddInputOpts{}
+	for _, opt := range opts {
+		opt(options)
 	}
 
-	i := func(ctx context.Context, in map[string]any, opts ...any) (map[string]any, error) {
-		return in, nil
+	for _, input := range inputs {
+		input.fromNodeKey = fromNodeKey
 	}
 
-	t := func(ctx context.Context, in *schema.StreamReader[map[string]any], opts ...any) (*schema.StreamReader[map[string]any], error) {
-		return in, nil
+	if len(inputs) == 0 {
+		inputs = append(inputs, &FieldMapping{
+			fromNodeKey: fromNodeKey,
+		})
 	}
 
-	lambda := anyLambda(i, nil, nil, t)
+	wb.inputs[fromNodeKey] = inputs
 
-	wf.branchCnt++
-
-	// create a lambda node before branch
-	beforeBranchNode := wf.AddLambdaNode(fmt.Sprintf("before_branch_%d", wf.branchCnt), lambda)
-	for _, fromNodeKey := range fromNodeKeys {
-		beforeBranchNode.AddInput(fromNodeKey, ToField(fromNodeKey))
+	if !options.asIndirectEdge {
+		wb.inputAsIndirectEdge[fromNodeKey] = true
 	}
 
-	// create a lambda node between the branch and each successor
-	endNode2AfterBranchNode := make(map[string]string, len(endNodesWithMappings))
-	for endNodeKey, from2Mappings := range endNodesWithMappings {
-		afterBranchNode := wf.AddLambdaNode(fmt.Sprintf("between_branch_%d_%s", wf.branchCnt, endNodeKey), lambda)
-		endNode2AfterBranchNode[endNodeKey] = afterBranchNode.key
-		endNode := wf.workflowNodes[endNodeKey]
-		if endNode == nil && endNodeKey != END {
-			wf.err = fmt.Errorf("end node %s needs to be added before adding to branch", endNodeKey)
-			return wf
-		}
+	return wb
+}
 
-		newMappings := make([]*FieldMapping, 0)
-		for from, mappings := range from2Mappings {
-			for _, mapping := range mappings {
-				newMappings = append(newMappings, &FieldMapping{
-					from: fmt.Sprintf("%s%s%s", from, pathSeparator, mapping.from),
-					to:   mapping.to,
-				})
-			}
+// AddEnd 创建 fromNodeKey 到 END 的流转关系，同时在 fromNodeKey 和 END 之间创建数据映射.
+func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *Workflow[I, O] {
+	return wf.addEndWithOptions(fromNodeKey, inputs)
+}
 
-			if len(mappings) == 0 { // normal edge, convert to mapping
-				newMappings = append(newMappings, &FieldMapping{
-					from: fmt.Sprintf("%s", from),
-				})
-			}
-		}
+func (wf *Workflow[I, O]) AddEndWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *Workflow[I, O] {
+	return wf.addEndWithOptions(fromNodeKey, inputs, opts...)
+}
 
-		if endNodeKey == END {
-			wf.AddEnd(afterBranchNode.key, newMappings...)
-		} else if endNode != nil {
-			endNode.AddInput(afterBranchNode.key, newMappings...)
-		}
+func (wf *Workflow[I, O]) addEndWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *Workflow[I, O] {
+	options := &workflowAddInputOpts{}
+	for _, opt := range opts {
+		opt(options)
 	}
 
-	cond := func(ctx context.Context, in map[string]any, opts ...any) (string, error) {
-		originalEndNode, err := condition(ctx, in)
-		if err != nil {
-			return "", err
-		}
-
-		afterBranchNode, ok := endNode2AfterBranchNode[originalEndNode]
-		if !ok {
-			return "", fmt.Errorf("end node %s not found for branch", originalEndNode)
-		}
-
-		return afterBranchNode, nil
+	for _, input := range inputs {
+		input.fromNodeKey = fromNodeKey
 	}
 
-	r := runnableLambda(cond, nil, nil, nil, false)
-
-	afterEndNodeSet := make(map[string]bool, len(endNode2AfterBranchNode))
-	for _, afterBranchNode := range endNode2AfterBranchNode {
-		afterEndNodeSet[afterBranchNode] = true
+	if len(inputs) == 0 {
+		inputs = append(inputs, &FieldMapping{
+			fromNodeKey: fromNodeKey,
+		})
 	}
 
-	graphBranch := &GraphBranch{
-		condition: r,
-		endNodes:  afterEndNodeSet,
-	}
+	if options.asIndirectEdge {
+		_ = wf.g.addIndirectEdgeWithMappings(fromNodeKey, END, inputs...)
 
-	_ = wf.g.AddBranch(beforeBranchNode.key, graphBranch)
+	} else {
+		_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
+	}
 
 	return wf
 }
@@ -268,6 +318,27 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 	if wf.err != nil {
 		return nil, wf.err
 	}
+
+	for _, n := range wf.workflowNodes {
+		for _, addInput := range n.addInputs {
+			addInput()
+		}
+	}
+
+	for _, wb := range wf.workflowBranches {
+		passthrough := wf.addPassthroughNode(wb.branchKey)
+		for fromNodeKey, inputs := range wb.inputs {
+			if wb.inputAsIndirectEdge[fromNodeKey] {
+				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithIndirectEdgeEnable())
+			} else {
+				passthrough.AddInput(fromNodeKey, inputs...)
+			}
+		}
+
+		_ = wf.g.AddBranch(passthrough.key, wb.GraphBranch)
+	}
+
+	// TODO: check indirect edges are legal
 
 	return wf.g.compile(ctx, options)
 }

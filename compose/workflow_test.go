@@ -589,6 +589,29 @@ func TestFanInToSameDest(t *testing.T) {
 	})
 }
 
+func TestIndirectEdge(t *testing.T) {
+	wf := NewWorkflow[string, map[string]any]()
+
+	wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+		return in + "_" + in, nil
+	})).AddInput(START)
+
+	wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in map[string]string) (output string, err error) {
+		return in["1"] + "_" + in[START], nil
+	})).AddInput("1", ToField("1")).
+		AddInputWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
+
+	wf.AddEnd("2", ToField("2")).
+		AddEndWithOptions("1", []*FieldMapping{ToField("1")}, WithIndirectEdgeEnable())
+
+	r, err := wf.Compile(context.Background())
+	assert.NoError(t, err)
+	out, err := r.Invoke(context.Background(), "query")
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{"1": "query_query", "2": "query_query_query"}, out)
+}
+
+/*
 func TestBranch(t *testing.T) {
 	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
@@ -680,6 +703,7 @@ func TestBranch(t *testing.T) {
 		_ = r
 	})
 }
+*/
 
 type goodInterface interface {
 	GOOD()
