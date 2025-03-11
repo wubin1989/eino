@@ -52,10 +52,11 @@ func newGraphCompileOptions(opts ...GraphCompileOption) *graphCompileOptions {
 }
 
 type chanCall struct {
-	action          *composableRunnable
-	writeTo         []string
-	indirectWriteTo []string
-	writeToBranches []*GraphBranch
+	action                  *composableRunnable
+	writeTo                 []string
+	indirectWriteTo         []string
+	writeToBranches         []*GraphBranch
+	indirectWriteToBranches []*GraphBranch
 
 	preProcessor, postProcessor *composableRunnable
 }
@@ -317,6 +318,50 @@ func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan
 		}
 
 		ret = append(ret, w)
+	}
+
+	for i, branch := range startChan.indirectWriteToBranches {
+		wCh, e := runWrapper(ctx, branch.condition, input[i])
+		if e != nil {
+			return nil, fmt.Errorf("branch run error: %w", e)
+		}
+
+		// process branch output
+		var w string
+		var ok bool
+		if isStream { // nolint:byted_s_too_many_nests_in_func
+			var sr streamReader
+			var csr *schema.StreamReader[string]
+			sr, ok = wCh.(streamReader)
+			if !ok {
+				return nil, errors.New("stream branch return isn't IStreamReader")
+			}
+			csr, ok = unpackStreamReader[string](sr)
+			if !ok {
+				return nil, errors.New("unpack branch result fail")
+			}
+
+			var se error
+			w, se = concatStreamReader(csr)
+			if se != nil {
+				return nil, fmt.Errorf("concat branch result error: %w", se)
+			}
+		} else { // nolint:byted_s_too_many_nests_in_func
+			w, ok = wCh.(string)
+			if !ok {
+				return nil, errors.New("invoke branch result isn't string")
+			}
+		}
+
+		for node := range branch.endNodes {
+			if node != w {
+				skippedNodes[node] = struct{}{}
+			}
+		}
+
+		if err := cm.reportControl(curNodeKey, w); err != nil {
+			return nil, err
+		}
 	}
 
 	// When a node has multiple branches,

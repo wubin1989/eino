@@ -145,12 +145,13 @@ func (g graphRunType) String() string {
 }
 
 type graph struct {
-	nodes         map[string]*graphNode
-	edges         map[string][]string
-	indirectEdges map[string][]string
-	branches      map[string][]*GraphBranch
-	startNodes    []string
-	endNodes      []string
+	nodes            map[string]*graphNode
+	edges            map[string][]string
+	indirectEdges    map[string][]string
+	branches         map[string][]*GraphBranch
+	indirectBranches map[string][]*GraphBranch
+	startNodes       []string
+	endNodes         []string
 
 	toValidateMap map[string][]struct {
 		endNode  string
@@ -218,10 +219,11 @@ func newGraphFromGeneric[I, O any](
 
 func newGraph(cfg *newGraphConfig) *graph {
 	return &graph{
-		nodes:         make(map[string]*graphNode),
-		edges:         make(map[string][]string),
-		indirectEdges: make(map[string][]string),
-		branches:      make(map[string][]*GraphBranch),
+		nodes:            make(map[string]*graphNode),
+		edges:            make(map[string][]string),
+		indirectEdges:    make(map[string][]string),
+		branches:         make(map[string][]*GraphBranch),
+		indirectBranches: make(map[string][]*GraphBranch),
 
 		toValidateMap: make(map[string][]struct {
 			endNode  string
@@ -552,6 +554,10 @@ func (g *graph) AddPassthroughNode(key string, opts ...GraphAddNodeOpt) error {
 //
 //	graph.AddBranch("start_node_key", branch)
 func (g *graph) AddBranch(startNode string, branch *GraphBranch) (err error) {
+	return g.addBranch(startNode, branch, false)
+}
+
+func (g *graph) addBranch(startNode string, branch *GraphBranch, asIndirectBranch bool) (err error) {
 	if g.buildError != nil {
 		return g.buildError
 	}
@@ -593,29 +599,32 @@ func (g *graph) AddBranch(startNode string, branch *GraphBranch) (err error) {
 		g.handlerPreBranch[startNode] = append(g.handlerPreBranch[startNode], []handlerPair{})
 	}
 
-	for endNode := range branch.endNodes {
-		if _, ok := g.nodes[endNode]; !ok {
-			if endNode != END {
-				return fmt.Errorf("branch end node '%s' needs to be added to graph first", endNode)
+	if !asIndirectBranch {
+		for endNode := range branch.endNodes {
+			if _, ok := g.nodes[endNode]; !ok {
+				if endNode != END {
+					return fmt.Errorf("branch end node '%s' needs to be added to graph first", endNode)
+				}
+			}
+
+			g.addToValidateMap(startNode, endNode, nil)
+			e := g.updateToValidateMap()
+			if e != nil {
+				return e
+			}
+
+			if startNode == START {
+				g.startNodes = append(g.startNodes, endNode)
+			}
+			if endNode == END {
+				g.endNodes = append(g.endNodes, startNode)
 			}
 		}
 
-		g.addToValidateMap(startNode, endNode, nil)
-		e := g.updateToValidateMap()
-		if e != nil {
-			return e
-		}
-
-		if startNode == START {
-			g.startNodes = append(g.startNodes, endNode)
-		}
-		if endNode == END {
-			g.endNodes = append(g.endNodes, startNode)
-		}
-
+		g.branches[startNode] = append(g.branches[startNode], branch)
+	} else {
+		g.indirectBranches[startNode] = append(g.indirectBranches[startNode], branch)
 	}
-
-	g.branches[startNode] = append(g.branches[startNode], branch)
 
 	return nil
 }
@@ -837,6 +846,13 @@ func (g *graph) compile(ctx context.Context, opt *graphCompileOptions) (*composa
 			chCall.writeToBranches = branchRuns
 		}
 
+		indirectBranches := g.indirectBranches[name]
+		if len(indirectBranches) > 0 {
+			branchRuns := make([]*GraphBranch, 0, len(indirectBranches))
+			branchRuns = append(branchRuns, indirectBranches...)
+			chCall.indirectWriteToBranches = branchRuns
+		}
+
 		chanSubscribeTo[name] = chCall
 
 	}
@@ -864,12 +880,26 @@ func (g *graph) compile(ctx context.Context, opt *graphCompileOptions) (*composa
 		}
 	}
 
+	for start, branches := range g.indirectBranches {
+		for _, branch := range branches {
+			for end := range branch.endNodes {
+				if _, ok := invertedEdges[end]; !ok {
+					invertedEdges[end] = []string{start}
+				} else {
+					invertedEdges[end] = append(invertedEdges[end], start)
+				}
+			}
+		}
+	}
+
 	inputChannels := &chanCall{
-		writeTo:         g.edges[START],
-		indirectWriteTo: g.indirectEdges[START],
-		writeToBranches: make([]*GraphBranch, len(g.branches[START])),
+		writeTo:                 g.edges[START],
+		indirectWriteTo:         g.indirectEdges[START],
+		writeToBranches:         make([]*GraphBranch, len(g.branches[START])),
+		indirectWriteToBranches: make([]*GraphBranch, len(g.indirectBranches[START])),
 	}
 	copy(inputChannels.writeToBranches, g.branches[START])
+	copy(inputChannels.indirectWriteToBranches, g.indirectBranches[START])
 
 	r := &runner{
 		invertedEdges:   invertedEdges,

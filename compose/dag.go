@@ -22,9 +22,9 @@ import (
 )
 
 func dagChannelBuilder(dependencies []string) channel {
-	waitList := make(map[string]bool, len(dependencies))
+	waitList := make(map[string]dagChannelState, len(dependencies))
 	for _, dep := range dependencies {
-		waitList[dep] = false
+		waitList[dep] = unready
 	}
 	return &dagChannel{
 		values:   make(map[string]any),
@@ -32,9 +32,17 @@ func dagChannelBuilder(dependencies []string) channel {
 	}
 }
 
+type dagChannelState int
+
+const (
+	unready dagChannelState = iota
+	success
+	skipped
+)
+
 type dagChannel struct {
 	values   map[string]any
-	waitList map[string]bool
+	waitList map[string]dagChannelState
 	value    any
 	skipped  bool
 }
@@ -49,6 +57,9 @@ func (ch *dagChannel) update(ctx context.Context, ins map[string]any) error {
 			return fmt.Errorf("dag channel update, calculate node repeatedly: %s", k)
 		}
 		ch.values[k] = v
+		if _, ok := ch.waitList[k]; ok {
+			ch.waitList[k] = success
+		}
 	}
 
 	return ch.tryUpdateValue()
@@ -76,13 +87,13 @@ func (ch *dagChannel) ready(ctx context.Context) bool {
 func (ch *dagChannel) reportSkip(keys []string) (bool, error) {
 	for _, k := range keys {
 		if _, ok := ch.waitList[k]; ok {
-			ch.waitList[k] = true
+			ch.waitList[k] = skipped
 		}
 	}
 
 	allSkipped := true
-	for _, skipped := range ch.waitList {
-		if !skipped {
+	for _, state := range ch.waitList {
+		if state != skipped {
 			allSkipped = false
 			break
 		}
@@ -97,9 +108,17 @@ func (ch *dagChannel) reportSkip(keys []string) (bool, error) {
 	return allSkipped, err
 }
 
+func (ch *dagChannel) reportSuccessWithoutValue(key string) error {
+	if _, ok := ch.waitList[key]; ok {
+		ch.waitList[key] = success
+	}
+
+	return ch.tryUpdateValue()
+}
+
 func (ch *dagChannel) tryUpdateValue() error {
-	for key, skipped := range ch.waitList {
-		if _, ok := ch.values[key]; !ok && !skipped {
+	for _, state := range ch.waitList {
+		if state == unready {
 			return nil
 		}
 	}

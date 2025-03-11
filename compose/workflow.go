@@ -87,7 +87,7 @@ func (wf *Workflow[I, O]) Compile(ctx context.Context, opts ...GraphCompileOptio
 			}
 		}
 
-		_ = wf.g.AddBranch(passthrough.key, wb.GraphBranch)
+		_ = wf.g.addBranch(passthrough.key, wb.GraphBranch, true)
 	}
 
 	// TODO: check indirect edges are legal
@@ -335,7 +335,7 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 			}
 		}
 
-		_ = wf.g.AddBranch(passthrough.key, wb.GraphBranch)
+		_ = wf.g.addBranch(passthrough.key, wb.GraphBranch, true)
 	}
 
 	// TODO: check indirect edges are legal

@@ -611,7 +611,6 @@ func TestIndirectEdge(t *testing.T) {
 	assert.Equal(t, map[string]any{"1": "query_query", "2": "query_query_query"}, out)
 }
 
-/*
 func TestBranch(t *testing.T) {
 	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
@@ -619,19 +618,17 @@ func TestBranch(t *testing.T) {
 		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
 		}))
-		wf.AddBranch([]string{START}, func(ctx context.Context, in map[string]any) (string, error) {
+
+		branch := NewGraphBranch[map[string]any](func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START].(string) == "hello" {
 				return "1", nil
 			}
 			return END, nil
-		}, map[string]map[string][]*FieldMapping{
-			"1": {
-				START: {},
-			},
-			END: {
-				START: {},
-			},
+		}, map[string]bool{
+			"1": true,
+			END: true,
 		})
+		wf.AddBranch("branch_1", branch).AddInput(START, ToField(START)).AddInput("1", ToField("1"))
 		wf.AddEnd("1")
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
@@ -643,7 +640,7 @@ func TestBranch(t *testing.T) {
 		assert.Equal(t, "world", out)
 	})
 
-	t.Run("multiple predecessors", func(t *testing.T) {
+	/*t.Run("multiple predecessors", func(t *testing.T) {
 		wf := NewWorkflow[string, string]()
 		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
@@ -701,9 +698,8 @@ func TestBranch(t *testing.T) {
 		r, err := wf.Compile(context.Background())
 		assert.NoError(t, err)
 		_ = r
-	})
+	})*/
 }
-*/
 
 type goodInterface interface {
 	GOOD()

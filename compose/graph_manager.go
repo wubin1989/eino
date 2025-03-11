@@ -31,6 +31,7 @@ type channel interface {
 	get(context.Context) (any, error)
 	ready(context.Context) bool
 	reportSkip([]string) (bool, error)
+	reportSuccessWithoutValue(string) error
 }
 
 type edgeHandlerManager struct {
@@ -194,6 +195,10 @@ func (c *channelManager) reportBranch(from string, skippedNodes []string) error 
 		}
 	}
 	return nil
+}
+
+func (c *channelManager) reportControl(from string, to string) error {
+	return c.channels[to].reportSuccessWithoutValue(from)
 }
 
 type task struct {
