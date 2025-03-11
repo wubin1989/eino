@@ -282,7 +282,7 @@ type ResponseMeta struct {
 	FinishReason string `json:"finish_reason,omitempty"`
 	// Usage is the token usage of the chat response, whether usage exists depends on whether the chat model implementation returns.
 	Usage *TokenUsage `json:"usage,omitempty"`
-	// LogProbs is Log probability information for the choice.
+	// LogProbs is Log probability information.
 	LogProbs *LogProbs `json:"logprobs,omitempty"`
 }
 
