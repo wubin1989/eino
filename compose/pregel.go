@@ -73,4 +73,4 @@ func (ch *pregelChannel) reportSkip(_ []string) (bool, error) {
 	return false, nil
 }
 
-func (ch *pregelChannel) reportSuccessWithoutValue(_ string) error { return nil }
+func (ch *pregelChannel) reportDone(_ string) error { return nil }

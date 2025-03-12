@@ -114,11 +114,6 @@ func buildStreamFieldMappingConverter[I any]() func(input streamReader) streamRe
 }
 
 func convertTo[T any](mappings map[FieldMapping]any) (T, error) {
-	/*if _, ok := mappings[""]; ok {
-		// to the entire successor input
-		return mappings[""].(T), nil
-	}*/
-
 	t := generic.NewInstance[T]()
 
 	var (

@@ -36,7 +36,7 @@ type dagChannelState int
 
 const (
 	unready dagChannelState = iota
-	success
+	done
 	skipped
 )
 
@@ -45,6 +45,7 @@ type dagChannel struct {
 	waitList map[string]dagChannelState
 	value    any
 	skipped  bool
+	isReady  bool
 }
 
 func (ch *dagChannel) update(ctx context.Context, ins map[string]any) error {
@@ -57,23 +58,21 @@ func (ch *dagChannel) update(ctx context.Context, ins map[string]any) error {
 			return fmt.Errorf("dag channel update, calculate node repeatedly: %s", k)
 		}
 		ch.values[k] = v
-		if _, ok := ch.waitList[k]; ok {
-			ch.waitList[k] = success
-		}
 	}
 
-	return ch.tryUpdateValue()
+	return nil
 }
 
 func (ch *dagChannel) get(ctx context.Context) (any, error) {
 	if ch.skipped {
 		return nil, fmt.Errorf("dag channel has been skipped")
 	}
-	if ch.value == nil {
+	if !ch.isReady {
 		return nil, fmt.Errorf("dag channel not ready, value is nil")
 	}
 	v := ch.value
 	ch.value = nil
+	ch.isReady = false
 	return v, nil
 }
 
@@ -81,7 +80,7 @@ func (ch *dagChannel) ready(ctx context.Context) bool {
 	if ch.skipped {
 		return false
 	}
-	return ch.value != nil
+	return ch.isReady
 }
 
 func (ch *dagChannel) reportSkip(keys []string) (bool, error) {
@@ -108,9 +107,9 @@ func (ch *dagChannel) reportSkip(keys []string) (bool, error) {
 	return allSkipped, err
 }
 
-func (ch *dagChannel) reportSuccessWithoutValue(key string) error {
+func (ch *dagChannel) reportDone(key string) error {
 	if _, ok := ch.waitList[key]; ok {
-		ch.waitList[key] = success
+		ch.waitList[key] = done
 	}
 
 	return ch.tryUpdateValue()
@@ -126,13 +125,18 @@ func (ch *dagChannel) tryUpdateValue() error {
 	values := mapToList(ch.values)
 	if len(values) == 1 {
 		ch.value = values[0]
+		ch.isReady = true
 		return nil
 	}
-	v, err := mergeValues(values)
-	if err != nil {
-		return err
+	if len(values) > 1 {
+		v, err := mergeValues(values)
+		if err != nil {
+			return err
+		}
+		ch.value = v
 	}
-	ch.value = v
-	return nil
 
+	ch.isReady = true
+
+	return nil
 }

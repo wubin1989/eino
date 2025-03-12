@@ -52,11 +52,9 @@ func newGraphCompileOptions(opts ...GraphCompileOption) *graphCompileOptions {
 }
 
 type chanCall struct {
-	action                  *composableRunnable
-	writeTo                 []string
-	indirectWriteTo         []string
-	writeToBranches         []*GraphBranch
-	indirectWriteToBranches []*GraphBranch
+	action          *composableRunnable
+	writeTo         []*edgeInfo
+	writeToBranches []*GraphBranch
 
 	preProcessor, postProcessor *composableRunnable
 }
@@ -178,14 +176,141 @@ func (r *runner) run(ctx context.Context, isStream bool, input any, opts ...Opti
 			return nil, ErrExceedMaxSteps
 		}
 
-		// 1. Calculate active edges and resolve their values.
-		writeChannelValues, err := r.resolveCompletedTasks(ctx, completedTasks, isStream, cm)
-		if err != nil {
+		toUpdateMap := make(map[string]map[string]any)
+		toPassControlMap := make(map[string][]string)
+		toSkipMap := make(map[string]map[string]struct{})
+		for _, t := range completedTasks {
+			// copy to: edges with passData, allBranches, branches without noDataFlow
+			var copyN, controlN, dataBranchN int
+			for _, edge := range t.call.writeTo {
+				if !edge.noDataFlow {
+					copyN++
+				}
+
+				if !edge.noControlFlow {
+					controlN++
+				}
+			}
+			copyN += len(t.call.writeToBranches)
+			controlN += len(t.call.writeToBranches)
+			for _, branch := range t.call.writeToBranches {
+				if !branch.noDataFlow {
+					copyN++
+					dataBranchN++
+				}
+			}
+			vs := copyItem(t.output, copyN)
+
+			toPassControl := make([]string, 0, controlN)
+			toPassControlMap[t.nodeKey] = toPassControl
+			for i, edge := range t.call.writeTo {
+				if !edge.noDataFlow {
+					if _, ok := toUpdateMap[edge.endNode]; !ok {
+						toUpdateMap[edge.endNode] = make(map[string]any)
+					}
+					toUpdateMap[edge.endNode][edge.startNode] = vs[i]
+				}
+
+				if !edge.noControlFlow {
+					toPassControlMap[t.nodeKey] = append(toPassControlMap[t.nodeKey], edge.endNode)
+				}
+			}
+
+			vs = vs[len(t.call.writeTo):]
+
+			for i, branch := range t.call.writeToBranches {
+				// check branch input type if needed
+				var err error
+				vs[i], err = r.preBranchHandlerManager.handle(t.nodeKey, i, vs[i], isStream)
+				if err != nil {
+					return nil, fmt.Errorf("branch[%s]-[%d] pre handler fail: %w", t.nodeKey, branch.idx, err)
+				}
+
+				wCh, e := runWrapper(ctx, branch.condition, vs[i])
+				if e != nil {
+					return nil, fmt.Errorf("branch run error: %w", e)
+				}
+
+				// process branch output
+				var w string
+				var ok bool
+				if isStream { // nolint:byted_s_too_many_nests_in_func
+					var sr streamReader
+					var csr *schema.StreamReader[string]
+					sr, ok = wCh.(streamReader)
+					if !ok {
+						return nil, errors.New("stream branch return isn't IStreamReader")
+					}
+					csr, ok = unpackStreamReader[string](sr)
+					if !ok {
+						return nil, errors.New("unpack branch result fail")
+					}
+
+					var se error
+					w, se = concatStreamReader(csr)
+					if se != nil {
+						return nil, fmt.Errorf("concat branch result error: %w", se)
+					}
+				} else { // nolint:byted_s_too_many_nests_in_func
+					w, ok = wCh.(string)
+					if !ok {
+						return nil, errors.New("invoke branch result isn't string")
+					}
+				}
+
+				for node := range branch.endNodes {
+					if node != w {
+						if _, ok := toSkipMap[t.nodeKey]; !ok {
+							toSkipMap[t.nodeKey] = make(map[string]struct{})
+						}
+						toSkipMap[t.nodeKey][node] = struct{}{}
+					}
+				}
+
+				toPassControlMap[t.nodeKey] = append(toPassControlMap[t.nodeKey], w)
+
+				if !branch.noDataFlow {
+					if _, ok := toUpdateMap[t.nodeKey]; !ok {
+						toUpdateMap[w] = make(map[string]any)
+					}
+					toUpdateMap[w][t.nodeKey] = vs[i+dataBranchN]
+				}
+			}
+		}
+
+		if err := cm.updateValues(ctx, toUpdateMap, isStream); err != nil {
 			return nil, err
 		}
 
-		// Update channels and get nodes ready for execution.
-		nodeMap, err := cm.updateAndGet(ctx, writeChannelValues, isStream)
+		for fromNodeKey, toList := range toPassControlMap {
+			if err := cm.reportControl(fromNodeKey, toList); err != nil {
+				return nil, err
+			}
+		}
+
+		for fromNodeKey, toSkip := range toSkipMap {
+			skippedNodeList := make([]string, 0, len(toSkip))
+			if toControl, ok := toPassControlMap[fromNodeKey]; ok {
+				for _, nodeKey := range toControl {
+					if _, ok := toSkip[nodeKey]; ok {
+						delete(toSkip, nodeKey)
+					}
+				}
+			}
+
+			for nodeKey := range toSkip {
+				skippedNodeList = append(skippedNodeList, nodeKey)
+			}
+
+			if err := cm.reportBranch(fromNodeKey, skippedNodeList); err != nil {
+				return nil, err
+			}
+		}
+
+		// resolve control and report skipped nodes
+		// resolve data and update channel values
+		// get ready channels
+		nodeMap, err := cm.getFromReadyChannels(ctx, isStream)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update and get channels: %w", err)
 		}
@@ -236,13 +361,14 @@ func (r *runner) createTasks(ctx context.Context, nodeMap map[string]any, optMap
 	return nextTasks, nil
 }
 
+/*
 func (r *runner) resolveCompletedTasks(ctx context.Context, completedTasks []*task, isStream bool, cm *channelManager) (map[string]map[string]any, error) {
 	writeChannelValues := make(map[string]map[string]any)
 	for _, t := range completedTasks {
 		// update channel & new_next_tasks
-		vs := copyItem(t.output, len(t.call.writeTo)+len(t.call.indirectWriteTo)+len(t.call.writeToBranches)*2)
+		vs := copyItem(t.output, len(t.call.passControlTo)+len(t.call.passDataTo)+len(t.call.passDataThroughBranch)*2)
 		nextNodeKeys, err := r.calculateNext(ctx, t.nodeKey, t.call,
-			vs[len(t.call.writeTo)+len(t.call.indirectWriteTo)+len(t.call.writeToBranches):], isStream, cm)
+			vs[len(t.call.passControlTo)+len(t.call.passDataTo)+len(t.call.passDataThroughBranch):], isStream, cm)
 		if err != nil {
 			return nil, fmt.Errorf("calculate next step fail, node: %s, error: %w", t.nodeKey, err)
 		}
@@ -257,7 +383,7 @@ func (r *runner) resolveCompletedTasks(ctx context.Context, completedTasks []*ta
 }
 
 func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan *chanCall, input []any, isStream bool, cm *channelManager) ([]string, error) {
-	if len(input) < len(startChan.writeToBranches) {
+	if len(input) < len(startChan.passDataThroughBranch) {
 		// unreachable
 		return nil, errors.New("calculate next input length is shorter than branches")
 	}
@@ -266,12 +392,12 @@ func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan
 		runWrapper = runnableTransform
 	}
 
-	ret := make([]string, 0, len(startChan.writeTo)+len(startChan.indirectWriteTo))
-	ret = append(ret, startChan.writeTo...)
-	ret = append(ret, startChan.indirectWriteTo...)
+	ret := make([]string, 0, len(startChan.passControlTo)+len(startChan.passDataTo))
+	ret = append(ret, startChan.passControlTo...)
+	ret = append(ret, startChan.passDataTo...)
 
 	skippedNodes := make(map[string]struct{})
-	for i, branch := range startChan.writeToBranches {
+	for i, branch := range startChan.passDataThroughBranch {
 		// check branch input type if needed
 		var err error
 		input[i], err = r.preBranchHandlerManager.handle(curNodeKey, i, input[i], isStream)
@@ -320,7 +446,7 @@ func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan
 		ret = append(ret, w)
 	}
 
-	for i, branch := range startChan.indirectWriteToBranches {
+	for i, branch := range startChan.passControlThroughBranch {
 		wCh, e := runWrapper(ctx, branch.condition, input[i])
 		if e != nil {
 			return nil, fmt.Errorf("branch run error: %w", e)
@@ -383,6 +509,7 @@ func (r *runner) calculateNext(ctx context.Context, curNodeKey string, startChan
 	}
 	return ret, nil
 }
+*/
 
 func (r *runner) initTaskManager(runWrapper runnableCallWrapper, opts ...Option) *taskManager {
 	return &taskManager{

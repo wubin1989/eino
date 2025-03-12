@@ -76,7 +76,7 @@ func TestToolsNode(t *testing.T) {
 			}),
 	}
 
-	t.Run("success", func(t *testing.T) {
+	t.Run("done", func(t *testing.T) {
 		const (
 			nodeOfTools = "tools"
 			nodeOfModel = "model"

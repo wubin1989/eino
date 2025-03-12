@@ -158,19 +158,61 @@ func (n *WorkflowNode) AddInput(fromNodeKey string, inputs ...*FieldMapping) *Wo
 }
 
 type workflowAddInputOpts struct {
-	asIndirectEdge bool
+	noDataFlow    bool
+	noControlFlow bool
 }
 
 type WorkflowAddInputOpt func(*workflowAddInputOpts)
 
-// WithIndirectEdgeEnable AddInput 时，创建数据映射，但不创建控制流转关系.
-// 即：当前 Node 可以引用特定前序 Node 的输出，但该前序 Node 的执行状态不影响当前 Node 是否可开始执行。
-// 注意： 如果当前 Node 和存在数据映射关系的前序 Node 之间存在 branch，则务必通过 WithIndirectEdgeEnable 转化为 indirect edge.
-// 注意: 当前 Node 必须为存在数据映射关系的 Node 的拓扑后续，否则数据映射关系无法成立。
-// 注意： 使用此 Option 会导致失去节点间控制流转关系。
+// WithIndirectEdgeEnable creates data mapping without establishing control flow relationship when adding an input.
+//
+// In a workflow graph, edges typically serve two purposes:
+// 1. Control flow: determining the execution order of nodes
+// 2. Data flow: passing data from one node to another
+//
+// This option creates an edge that only handles data flow, meaning:
+// - The current node can access outputs from the predecessor node
+// - The current node's execution is NOT blocked waiting for the predecessor to complete
+//
+// Usage:
+//
+//	node.AddInputWithOptions("fromNode", mappings, WithIndirectEdgeEnable())
+//
+// Important considerations:
+//
+//  1. Branch scenarios: If there is a branch between the current node and the predecessor node,
+//     you MUST use WithIndirectEdgeEnable to ensure correct data flow.
+//
+//  2. Topological order: The current node must be a topological successor of the predecessor node
+//     in the graph. Otherwise, data mapping cannot be established as the data may not be available
+//     when needed.
+//
+//  3. Control flow impact: This option removes the execution order dependency between nodes.
+//     Ensure this doesn't break your workflow's logical sequence.
+//
+// Common use cases:
+// - Accessing reference data from earlier steps without blocking execution
+// - Parallel processing with shared input data
+// - Complex branching scenarios where control flow and data flow need to be handled separately
 func WithIndirectEdgeEnable() WorkflowAddInputOpt {
 	return func(opt *workflowAddInputOpts) {
-		opt.asIndirectEdge = true
+		opt.noControlFlow = true
+	}
+}
+
+// WithControlFlowOnly creates a control flow relationship without data mapping when adding an input.
+// This means: the execution of the predecessor Node will affect when the current Node can begin execution,
+// but no data will be passed between them.
+//
+// Example usage:
+//
+//	node.AddInputWithOptions("fromNode", nil, WithControlFlowOnly())
+//
+// This is useful when you want to enforce execution order between nodes without data dependencies,
+// such as ensuring a cleanup node runs after a processing node.
+func WithControlFlowOnly() WorkflowAddInputOpt {
+	return func(opt *workflowAddInputOpts) {
+		opt.noDataFlow = true
 	}
 }
 
@@ -188,15 +230,19 @@ func (n *WorkflowNode) addInput(fromNodeKey string, inputs []*FieldMapping, opts
 		input.fromNodeKey = fromNodeKey
 	}
 
-	if len(inputs) == 0 {
+	if len(inputs) == 0 && !options.noDataFlow {
 		inputs = append(inputs, &FieldMapping{
 			fromNodeKey: fromNodeKey,
 		})
 	}
 
-	if options.asIndirectEdge {
+	if options.noControlFlow {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addIndirectEdgeWithMappings(fromNodeKey, n.key, inputs...)
+		})
+	} else if options.noDataFlow {
+		n.addInputs = append(n.addInputs, func() {
+			_ = n.g.addControlOnlyEdgeWithMappings(fromNodeKey, n.key, inputs...)
 		})
 	} else {
 		n.addInputs = append(n.addInputs, func() {
@@ -252,7 +298,7 @@ func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*Fiel
 
 	wb.inputs[fromNodeKey] = inputs
 
-	if options.asIndirectEdge {
+	if options.noControlFlow {
 		wb.inputAsIndirectEdge[fromNodeKey] = true
 	}
 
@@ -284,9 +330,10 @@ func (wf *Workflow[I, O]) addEndWithOptions(fromNodeKey string, inputs []*FieldM
 		})
 	}
 
-	if options.asIndirectEdge {
+	if options.noControlFlow {
 		_ = wf.g.addIndirectEdgeWithMappings(fromNodeKey, END, inputs...)
-
+	} else if options.noDataFlow {
+		_ = wf.g.addControlOnlyEdgeWithMappings(fromNodeKey, END, inputs...)
 	} else {
 		_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
 	}

@@ -135,7 +135,7 @@ func TestDAG(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// success
+	// done
 	ctx := context.Background()
 	out, err := r.i(ctx, "hello")
 	if err != nil {

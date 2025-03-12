@@ -611,6 +611,22 @@ func TestIndirectEdge(t *testing.T) {
 	assert.Equal(t, map[string]any{"1": "query_query", "2": "query_query_query"}, out)
 }
 
+func TestEdgesWithControlFlowOnly(t *testing.T) {
+	wf := NewWorkflow[string, string]()
+	wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+		return "useless", nil
+	})).AddInput(START)
+	wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+		return in + "_done", nil
+	})).AddInputWithOptions("0", nil, WithControlFlowOnly()).AddInputWithOptions(START, nil, WithIndirectEdgeEnable())
+	wf.AddEnd("1")
+	r, err := wf.Compile(context.Background())
+	assert.NoError(t, err)
+	out, err := r.Invoke(context.Background(), "hello")
+	assert.NoError(t, err)
+	assert.Equal(t, "hello_done", out)
+}
+
 func TestBranch(t *testing.T) {
 	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END", func(t *testing.T) {
