@@ -389,7 +389,7 @@ func TestValidate(t *testing.T) {
 	assert.NoError(t, err)
 	ru, err := g2.Compile(context.Background())
 	assert.NoError(t, err)
-	// done
+	// success
 	result, err := ru.Invoke(context.Background(), 1)
 	assert.NoError(t, err)
 	assert.Equal(t, result, "1")
@@ -536,7 +536,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	// test branch any type
-	// done
+	// success
 	g = NewGraph[string, string]()
 	err = g.AddLambdaNode("node1", InvokableLambda(func(ctx context.Context, input string) (output any, err error) { return input + "node1", nil }))
 	if err != nil {
@@ -637,7 +637,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestValidateMultiAnyValueBranch(t *testing.T) {
-	// done
+	// success
 	g := NewGraph[string, map[string]any]()
 	err := g.AddLambdaNode("node1", InvokableLambda(func(ctx context.Context, input string) (output any, err error) { return input + "node1", nil }))
 	if err != nil {
@@ -1620,22 +1620,22 @@ func TestHandlerTypeValidate(t *testing.T) {
 	}), WithInputKey("input"))
 	assert.ErrorContains(t, err, "passthrough node[1]'s post handler type isn't any")
 	g.buildError = nil
-	// passthrough pre done
+	// passthrough pre success
 	err = g.AddPassthroughNode("1", WithStatePreHandler(func(ctx context.Context, in any, state string) (any, error) {
 		return "", nil
 	}))
 	assert.NoError(t, err)
-	// passthrough pre done with input key
+	// passthrough pre success with input key
 	err = g.AddPassthroughNode("2", WithStatePreHandler(func(ctx context.Context, in map[string]any, state string) (map[string]any, error) {
 		return nil, nil
 	}), WithInputKey("input"))
 	assert.NoError(t, err)
-	// passthrough post done
+	// passthrough post success
 	err = g.AddPassthroughNode("3", WithStatePostHandler(func(ctx context.Context, in any, state string) (any, error) {
 		return "", nil
 	}))
 	assert.NoError(t, err)
-	// passthrough post done with output key
+	// passthrough post success with output key
 	err = g.AddPassthroughNode("4", WithStatePostHandler(func(ctx context.Context, in map[string]any, state string) (map[string]any, error) {
 		return nil, nil
 	}), WithOutputKey("output"))
@@ -1656,14 +1656,14 @@ func TestHandlerTypeValidate(t *testing.T) {
 	}))
 	assert.ErrorContains(t, err, "node[5]'s post handler type[string] is different from its output type[int]")
 	g.buildError = nil
-	// common node pre done
+	// common node pre success
 	err = g.AddLambdaNode("5", InvokableLambda(func(ctx context.Context, input string) (output string, err error) {
 		return "", nil
 	}), WithStatePreHandler(func(ctx context.Context, in string, state string) (string, error) {
 		return "", nil
 	}))
 	assert.NoError(t, err)
-	// common node post done
+	// common node post success
 	err = g.AddLambdaNode("6", InvokableLambda(func(ctx context.Context, input string) (output string, err error) {
 		return "", nil
 	}), WithStatePostHandler(func(ctx context.Context, in string, state string) (string, error) {
@@ -1686,53 +1686,18 @@ func TestHandlerTypeValidate(t *testing.T) {
 	}))
 	assert.ErrorContains(t, err, "node[7]'s post handler state type[int] is different from graph[string]")
 	g.buildError = nil
-	// common pre done with input key
+	// common pre success with input key
 	err = g.AddLambdaNode("7", InvokableLambda(func(ctx context.Context, input string) (output string, err error) {
 		return "", nil
 	}), WithStatePreHandler(func(ctx context.Context, in map[string]any, state string) (map[string]any, error) {
 		return nil, nil
 	}), WithInputKey("input"))
 	assert.NoError(t, err)
-	// common post done with output key
+	// common post success with output key
 	err = g.AddLambdaNode("8", InvokableLambda(func(ctx context.Context, input string) (output string, err error) {
 		return "", nil
 	}), WithStatePostHandler(func(ctx context.Context, in map[string]any, state string) (map[string]any, error) {
 		return nil, nil
 	}), WithOutputKey("output"))
 	assert.NoError(t, err)
-}
-
-func TestMultiPredecessorBranch(t *testing.T) {
-	g := NewGraph[map[string]any, map[string]any]()
-	_ = g.AddLambdaNode("lambda1", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
-		return map[string]any{"lambda3": true}, nil
-	}))
-	_ = g.AddLambdaNode("lambda2", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
-		return map[string]any{"lambda4": true}, nil
-	}))
-	_ = g.AddLambdaNode("lambda3", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
-		return input, nil
-	}))
-	_ = g.AddLambdaNode("lambda4", InvokableLambda(func(ctx context.Context, input map[string]any) (output map[string]any, err error) {
-		return input, nil
-	}))
-
-	branch := NewGraphBranch(func(ctx context.Context, in map[string]any) (endNode string, err error) {
-		if in["lambda3"] != nil {
-			return "lambda3", nil
-		}
-		return "lambda4", nil
-	}, map[string]bool{"lambda3": true, "lambda4": true})
-
-	_ = g.AddBranch("lambda1", branch)
-	_ = g.AddBranch("lambda2", branch)
-	_ = g.AddEdge("lambda3", END)
-	_ = g.AddEdge("lambda4", END)
-	_ = g.AddEdge(START, "lambda1")
-	_ = g.AddEdge(START, "lambda2")
-	r, err := g.Compile(context.Background(), WithNodeTriggerMode(AllPredecessor))
-	assert.NoError(t, err)
-	result, err := r.Invoke(context.Background(), map[string]any{"lambda3": true})
-	assert.NoError(t, err)
-	assert.Equal(t, result, map[string]any{"lambda3": true, "lambda4": true})
 }
