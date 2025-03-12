@@ -40,9 +40,7 @@ type WorkflowNode struct {
 // Under the hood it uses NodeTriggerMode(AllPredecessor), so does not support branches or cycles.
 type Workflow[I, O any] struct {
 	g                *graph
-	branchCnt        int
 	workflowNodes    map[string]*WorkflowNode
-	err              error
 	workflowBranches map[string]*WorkflowBranch
 }
 
@@ -59,7 +57,8 @@ func NewWorkflow[I, O any](opts ...NewGraphOption) *Workflow[I, O] {
 			options.withState,
 			options.stateType,
 		),
-		workflowNodes: make(map[string]*WorkflowNode),
+		workflowNodes:    make(map[string]*WorkflowNode),
+		workflowBranches: make(map[string]*WorkflowBranch),
 	}
 
 	return wf
@@ -71,28 +70,7 @@ func (wf *Workflow[I, O]) Compile(ctx context.Context, opts ...GraphCompileOptio
 	}
 	option := newGraphCompileOptions(opts...)
 
-	for _, n := range wf.workflowNodes {
-		for _, addInput := range n.addInputs {
-			addInput()
-		}
-	}
-
-	for _, wb := range wf.workflowBranches {
-		passthrough := wf.addPassthroughNode(wb.branchKey)
-		for fromNodeKey, inputs := range wb.inputs {
-			if wb.inputAsIndirectEdge[fromNodeKey] {
-				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithIndirectEdgeEnable())
-			} else {
-				passthrough.AddInput(fromNodeKey, inputs...)
-			}
-		}
-
-		_ = wf.g.addBranch(passthrough.key, wb.GraphBranch, true)
-	}
-
-	// TODO: check indirect edges are legal
-
-	cr, err := wf.g.compile(ctx, option)
+	cr, err := wf.compile(ctx, option)
 	if err != nil {
 		return nil, err
 	}
@@ -238,12 +216,14 @@ type WorkflowBranch struct {
 
 // AddBranch 创建一个分支（选择器），同时在 passthrough 和 endNodes 之间创建流转关系，不配置 endNodes 的数据映射
 func (wf *Workflow[I, O]) AddBranch(branchKey string, branch *GraphBranch) *WorkflowBranch {
-	return &WorkflowBranch{
+	wb := &WorkflowBranch{
 		branchKey:           branchKey,
 		GraphBranch:         branch,
 		inputs:              make(map[string][]*FieldMapping),
 		inputAsIndirectEdge: make(map[string]bool),
 	}
+	wf.workflowBranches[branchKey] = wb
+	return wb
 }
 
 func (wb *WorkflowBranch) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowBranch {
@@ -272,7 +252,7 @@ func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*Fiel
 
 	wb.inputs[fromNodeKey] = inputs
 
-	if !options.asIndirectEdge {
+	if options.asIndirectEdge {
 		wb.inputAsIndirectEdge[fromNodeKey] = true
 	}
 
@@ -315,10 +295,6 @@ func (wf *Workflow[I, O]) addEndWithOptions(fromNodeKey string, inputs []*FieldM
 }
 
 func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOptions) (*composableRunnable, error) {
-	if wf.err != nil {
-		return nil, wf.err
-	}
-
 	for _, n := range wf.workflowNodes {
 		for _, addInput := range n.addInputs {
 			addInput()
@@ -327,12 +303,20 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 
 	for _, wb := range wf.workflowBranches {
 		passthrough := wf.addPassthroughNode(wb.branchKey)
+		wf.g.nodes[wb.branchKey].cr.inputType = wb.GraphBranch.condition.inputType
+		wf.g.nodes[wb.branchKey].cr.outputType = wf.g.nodes[wb.branchKey].cr.inputType
+		wf.g.nodes[wb.branchKey].cr.inputConverter = wb.GraphBranch.condition.inputConverter
+		wf.g.nodes[wb.branchKey].cr.inputFieldMappingConverter = wb.GraphBranch.condition.inputFieldMappingConverter
 		for fromNodeKey, inputs := range wb.inputs {
 			if wb.inputAsIndirectEdge[fromNodeKey] {
 				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithIndirectEdgeEnable())
 			} else {
 				passthrough.AddInput(fromNodeKey, inputs...)
 			}
+		}
+
+		for _, addInput := range passthrough.addInputs {
+			addInput()
 		}
 
 		_ = wf.g.addBranch(passthrough.key, wb.GraphBranch, true)

@@ -613,14 +613,14 @@ func TestIndirectEdge(t *testing.T) {
 
 func TestBranch(t *testing.T) {
 	ctx := context.Background()
-	t.Run("simple branch: one predecessor, two successor, one of them is END, no field mapping", func(t *testing.T) {
-		wf := NewWorkflow[string, string]()
+	t.Run("simple branch: one predecessor, two successor, one of them is END", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
 		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
-		}))
+		})).AddInputWithOptions(START, nil, WithIndirectEdgeEnable())
 
-		branch := NewGraphBranch[map[string]any](func(ctx context.Context, in map[string]any) (string, error) {
-			if in[START].(string) == "hello" {
+		branch := NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
+			if in[START] == "hello" {
 				return "1", nil
 			}
 			return END, nil
@@ -628,77 +628,50 @@ func TestBranch(t *testing.T) {
 			"1": true,
 			END: true,
 		})
-		wf.AddBranch("branch_1", branch).AddInput(START, ToField(START)).AddInput("1", ToField("1"))
-		wf.AddEnd("1")
+		wf.AddBranch("branch_1", branch).AddInput(START, ToField(START))
+		wf.AddEnd("1", ToField("1")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
 		out, err := r.Invoke(ctx, "hello")
 		assert.NoError(t, err)
-		assert.Equal(t, "hello_hello", out)
+		assert.Equal(t, map[string]any{
+			"1":   "hello_hello",
+			START: "hello",
+		}, out)
 		out, err = r.Invoke(ctx, "world")
 		assert.NoError(t, err)
-		assert.Equal(t, "world", out)
+		assert.Equal(t, map[string]any{
+			START: "world",
+		}, out)
 	})
 
-	/*t.Run("multiple predecessors", func(t *testing.T) {
-		wf := NewWorkflow[string, string]()
+	t.Run("multiple predecessors", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
 		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
 		})).AddInput(START)
 		wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
-		}))
-		wf.AddBranch([]string{START, "1"}, func(ctx context.Context, in map[string]any) (string, error) {
+		})).AddInputWithOptions("1", nil, WithIndirectEdgeEnable())
+		wf.AddBranch("branch_1", NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START].(string) == "hello" {
 				return "2", nil
 			}
 			return END, nil
-		}, map[string]map[string][]*FieldMapping{
-			"2": {
-				"1": {},
-			},
-			END: {
-				START: {},
-			},
-		})
-		wf.AddEnd("2")
+		}, map[string]bool{
+			"2": true,
+			END: true,
+		})).AddInput(START, ToField(START)).AddInput("1", ToField("1"))
+		wf.AddEnd("2", ToField("2")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
 		out, err := r.Invoke(ctx, "hello")
 		assert.NoError(t, err)
-		assert.Equal(t, "hello_hello_hello_hello", out)
+		assert.Equal(t, map[string]any{"2": "hello_hello_hello_hello", START: "hello"}, out)
 		out, err = r.Invoke(ctx, "world")
 		assert.NoError(t, err)
-		assert.Equal(t, "world", out)
+		assert.Equal(t, map[string]any{START: "world"}, out)
 	})
-
-	t.Run("simple test", func(t *testing.T) {
-		wf := NewWorkflow[string, map[string]any]()
-		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in map[string]any) (output string, err error) {
-			return in["input"].(string) + "1", nil
-		}))
-		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
-			return in + "0", nil
-		})).AddInput(START)
-		wf.AddBranch([]string{START, "0"}, func(ctx context.Context, in map[string]any) (string, error) {
-			if in[START].(string) == "hello" {
-				return "1", nil
-			}
-			return END, nil
-		}, map[string]map[string][]*FieldMapping{
-			"1": {
-				START: {ToField("input")},
-				"0":   {ToField("output_0")},
-			},
-			END: {
-				START: {},
-			},
-		})
-		wf.AddEnd("1", ToField("result"))
-		r, err := wf.Compile(context.Background())
-		assert.NoError(t, err)
-		_ = r
-	})*/
 }
 
 type goodInterface interface {

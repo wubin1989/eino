@@ -1156,6 +1156,14 @@ func validateDAG(chanSubscribeTo map[string]*chanCall, invertedEdges map[string]
 						m[subNode]--
 					}
 				}
+				for _, subBranch := range chanSubscribeTo[node].indirectWriteToBranches {
+					for subNode := range subBranch.endNodes {
+						if subNode == END {
+							continue
+						}
+						m[subNode]--
+					}
+				}
 				m[node] = -1
 			}
 		}
