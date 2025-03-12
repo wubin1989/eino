@@ -245,11 +245,11 @@ type LogProbs struct {
 
 // LogProb represents the probability information for a token.
 type LogProb struct {
-	// Token is the token.
+	// Token represents the text of the token, which is a contiguous sequence of characters
+	// (e.g., a word, part of a word, or punctuation) as understood by the tokenization process used by the language model.
 	Token string `json:"token"`
-	// LogProb is the log probability of this token, if it is within the top 20 most likely
-	// tokens. Otherwise, the value `-9999.0` is used to signify that the token is very
-	// unlikely.
+	// LogProb is the log probability of this token, if it is within the top 20 most likely tokens.
+	// Otherwise, the value `-9999.0` is used to signify that the token is very unlikely.
 	LogProb float64 `json:"logprob"`
 	// Bytes is a list of integers representing the UTF-8 bytes representation of the token.
 	// Useful in instances where characters are represented by multiple tokens and
@@ -258,15 +258,15 @@ type LogProb struct {
 	Bytes []int64 `json:"bytes,omitempty"` // Omitting the field if it is null
 	// TopLogProbs is a list of the most likely tokens and their log probability, at this token position.
 	// In rare cases, there may be fewer than the number of requested top_logprobs returned.
-	TopLogProbs []TopLogProbs `json:"top_logprobs"`
+	TopLogProbs []TopLogProb `json:"top_logprobs"`
 }
 
-type TopLogProbs struct {
-	// Token is the token.
+type TopLogProb struct {
+	// Token represents the text of the token, which is a contiguous sequence of characters
+	// (e.g., a word, part of a word, or punctuation) as understood by the tokenization process used by the language model.
 	Token string `json:"token"`
-	// LogProb is the log probability of this token, if it is within the top 20 most likely
-	// tokens. Otherwise, the value `-9999.0` is used to signify that the token is very
-	// unlikely.
+	// LogProb is the log probability of this token, if it is within the top 20 most likely tokens.
+	// Otherwise, the value `-9999.0` is used to signify that the token is very unlikely.
 	LogProb float64 `json:"logprob"`
 	// Bytes is a list of integers representing the UTF-8 bytes representation of the token.
 	// Useful in instances where characters are represented by multiple tokens and
