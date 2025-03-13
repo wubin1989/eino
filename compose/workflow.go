@@ -36,8 +36,8 @@ type WorkflowNode struct {
 	addInputs []func()
 }
 
-// Workflow is wrapper of Graph, replacing AddEdge with declaring FieldMapping between one node's output and current node's input.
-// Under the hood it uses NodeTriggerMode(AllPredecessor), so does not support branches or cycles.
+// Workflow is wrapper of graph, replacing AddEdge with declaring dependencies and field mappings between nodes.
+// Under the hood it uses NodeTriggerMode(AllPredecessor), so does not support cycles.
 type Workflow[I, O any] struct {
 	g                *graph
 	workflowNodes    map[string]*WorkflowNode
@@ -152,19 +152,26 @@ func (wf *Workflow[I, O]) addPassthroughNode(key string, opts ...GraphAddNodeOpt
 	return wf.initNode(key)
 }
 
-// AddInput 创建两个节点的流转关系（对应 UI 中的边），同时在两个节点间创建数据映射（对应节点 UI 里的输入配置）.
 func (n *WorkflowNode) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowNode {
-	return n.addInput(fromNodeKey, inputs)
+	return n.addDependencyRelation(fromNodeKey, inputs, &workflowAddInputOpts{})
 }
 
 type workflowAddInputOpts struct {
-	noDataFlow    bool
-	noControlFlow bool
+	noDirectDependency     bool
+	dependencyWithoutInput bool
 }
 
 type WorkflowAddInputOpt func(*workflowAddInputOpts)
 
-// WithIndirectEdgeEnable creates data mapping without establishing control flow relationship when adding an input.
+func getAddInputOpts(opts []WorkflowAddInputOpt) *workflowAddInputOpts {
+	opt := &workflowAddInputOpts{}
+	for _, o := range opts {
+		o(opt)
+	}
+	return opt
+}
+
+// WithNoDirectDependency creates data mapping without establishing control flow relationship when adding an input.
 //
 // In a workflow graph, edges typically serve two purposes:
 // 1. Control flow: determining the execution order of nodes
@@ -176,12 +183,12 @@ type WorkflowAddInputOpt func(*workflowAddInputOpts)
 //
 // Usage:
 //
-//	node.AddInputWithOptions("fromNode", mappings, WithIndirectEdgeEnable())
+//	node.AddInputWithOptions("fromNode", mappings, WithNoDirectDependency())
 //
 // Important considerations:
 //
 //  1. Branch scenarios: If there is a branch between the current node and the predecessor node,
-//     you MUST use WithIndirectEdgeEnable to ensure correct data flow.
+//     you MUST use WithNoDirectDependency to ensure correct data flow.
 //
 //  2. Topological order: The current node must be a topological successor of the predecessor node
 //     in the graph. Otherwise, data mapping cannot be established as the data may not be available
@@ -194,53 +201,36 @@ type WorkflowAddInputOpt func(*workflowAddInputOpts)
 // - Accessing reference data from earlier steps without blocking execution
 // - Parallel processing with shared input data
 // - Complex branching scenarios where control flow and data flow need to be handled separately
-func WithIndirectEdgeEnable() WorkflowAddInputOpt {
+func WithNoDirectDependency() WorkflowAddInputOpt {
 	return func(opt *workflowAddInputOpts) {
-		opt.noControlFlow = true
-	}
-}
-
-// WithControlFlowOnly creates a control flow relationship without data mapping when adding an input.
-// This means: the execution of the predecessor Node will affect when the current Node can begin execution,
-// but no data will be passed between them.
-//
-// Example usage:
-//
-//	node.AddInputWithOptions("fromNode", nil, WithControlFlowOnly())
-//
-// This is useful when you want to enforce execution order between nodes without data dependencies,
-// such as ensuring a cleanup node runs after a processing node.
-func WithControlFlowOnly() WorkflowAddInputOpt {
-	return func(opt *workflowAddInputOpts) {
-		opt.noDataFlow = true
+		opt.noDirectDependency = true
 	}
 }
 
 func (n *WorkflowNode) AddInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowNode {
-	return n.addInput(fromNodeKey, inputs, opts...)
+	return n.addDependencyRelation(fromNodeKey, inputs, getAddInputOpts(opts))
 }
 
-func (n *WorkflowNode) addInput(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowNode {
-	options := &workflowAddInputOpts{}
-	for _, opt := range opts {
-		opt(options)
-	}
+func (n *WorkflowNode) AddDependency(fromNodeKey string) *WorkflowNode {
+	return n.addDependencyRelation(fromNodeKey, nil, &workflowAddInputOpts{dependencyWithoutInput: true})
+}
 
+func (n *WorkflowNode) addDependencyRelation(fromNodeKey string, inputs []*FieldMapping, options *workflowAddInputOpts) *WorkflowNode {
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
 	}
 
-	if len(inputs) == 0 && !options.noDataFlow {
+	if len(inputs) == 0 && !options.dependencyWithoutInput {
 		inputs = append(inputs, &FieldMapping{
 			fromNodeKey: fromNodeKey,
 		})
 	}
 
-	if options.noControlFlow {
+	if options.noDirectDependency {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addIndirectEdgeWithMappings(fromNodeKey, n.key, inputs...)
 		})
-	} else if options.noDataFlow {
+	} else if options.dependencyWithoutInput {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addControlOnlyEdgeWithMappings(fromNodeKey, n.key, inputs...)
 		})
@@ -273,24 +263,23 @@ func (wf *Workflow[I, O]) AddBranch(branchKey string, branch *GraphBranch) *Work
 }
 
 func (wb *WorkflowBranch) AddInput(fromNodeKey string, inputs ...*FieldMapping) *WorkflowBranch {
-	return wb.addInputWithOptions(fromNodeKey, inputs)
+	return wb.addDependencyRelation(fromNodeKey, inputs, &workflowAddInputOpts{})
 }
 
 func (wb *WorkflowBranch) AddInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowBranch {
-	return wb.addInputWithOptions(fromNodeKey, inputs, opts...)
+	return wb.addDependencyRelation(fromNodeKey, inputs, getAddInputOpts(opts))
 }
 
-func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *WorkflowBranch {
-	options := &workflowAddInputOpts{}
-	for _, opt := range opts {
-		opt(options)
-	}
+func (wb *WorkflowBranch) AddDependency(fromNodeKey string) *WorkflowBranch {
+	return wb.addDependencyRelation(fromNodeKey, nil, &workflowAddInputOpts{dependencyWithoutInput: true})
+}
 
+func (wb *WorkflowBranch) addDependencyRelation(fromNodeKey string, inputs []*FieldMapping, options *workflowAddInputOpts) *WorkflowBranch {
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
 	}
 
-	if len(inputs) == 0 {
+	if len(inputs) == 0 && !options.dependencyWithoutInput {
 		inputs = append(inputs, &FieldMapping{
 			fromNodeKey: fromNodeKey,
 		})
@@ -298,7 +287,7 @@ func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*Fiel
 
 	wb.inputs[fromNodeKey] = inputs
 
-	if options.noControlFlow {
+	if options.noDirectDependency {
 		wb.inputAsIndirectEdge[fromNodeKey] = true
 	}
 
@@ -307,32 +296,31 @@ func (wb *WorkflowBranch) addInputWithOptions(fromNodeKey string, inputs []*Fiel
 
 // AddEnd 创建 fromNodeKey 到 END 的流转关系，同时在 fromNodeKey 和 END 之间创建数据映射.
 func (wf *Workflow[I, O]) AddEnd(fromNodeKey string, inputs ...*FieldMapping) *Workflow[I, O] {
-	return wf.addEndWithOptions(fromNodeKey, inputs)
+	return wf.addEndDependencyRelation(fromNodeKey, inputs, &workflowAddInputOpts{})
 }
 
 func (wf *Workflow[I, O]) AddEndWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *Workflow[I, O] {
-	return wf.addEndWithOptions(fromNodeKey, inputs, opts...)
+	return wf.addEndDependencyRelation(fromNodeKey, inputs, getAddInputOpts(opts))
 }
 
-func (wf *Workflow[I, O]) addEndWithOptions(fromNodeKey string, inputs []*FieldMapping, opts ...WorkflowAddInputOpt) *Workflow[I, O] {
-	options := &workflowAddInputOpts{}
-	for _, opt := range opts {
-		opt(options)
-	}
+func (wf *Workflow[I, O]) AddEndDependency(fromNodeKey string) *Workflow[I, O] {
+	return wf.addEndDependencyRelation(fromNodeKey, nil, &workflowAddInputOpts{dependencyWithoutInput: true})
+}
 
+func (wf *Workflow[I, O]) addEndDependencyRelation(fromNodeKey string, inputs []*FieldMapping, options *workflowAddInputOpts) *Workflow[I, O] {
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
 	}
 
-	if len(inputs) == 0 {
+	if len(inputs) == 0 && !options.dependencyWithoutInput {
 		inputs = append(inputs, &FieldMapping{
 			fromNodeKey: fromNodeKey,
 		})
 	}
 
-	if options.noControlFlow {
+	if options.noDirectDependency {
 		_ = wf.g.addIndirectEdgeWithMappings(fromNodeKey, END, inputs...)
-	} else if options.noDataFlow {
+	} else if options.dependencyWithoutInput {
 		_ = wf.g.addControlOnlyEdgeWithMappings(fromNodeKey, END, inputs...)
 	} else {
 		_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
@@ -356,7 +344,7 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 		wf.g.nodes[wb.branchKey].cr.inputFieldMappingConverter = wb.GraphBranch.condition.inputFieldMappingConverter
 		for fromNodeKey, inputs := range wb.inputs {
 			if wb.inputAsIndirectEdge[fromNodeKey] {
-				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithIndirectEdgeEnable())
+				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithNoDirectDependency())
 			} else {
 				passthrough.AddInput(fromNodeKey, inputs...)
 			}

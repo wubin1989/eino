@@ -371,7 +371,7 @@ func (g *graph) addEdgeWithMappingsInternal(startNode, endNode string, noControl
 	}
 
 	if noControlFlow && noDataFlow {
-		return fmt.Errorf("edge[%s]-[%s] cannot be both noControlFlow and noDataFlow", startNode, endNode)
+		return fmt.Errorf("edge[%s]-[%s] cannot be both noDirectDependency and noDataFlow", startNode, endNode)
 	}
 
 	defer func() {

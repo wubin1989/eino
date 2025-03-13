@@ -633,10 +633,10 @@ func TestIndirectEdge(t *testing.T) {
 	wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in map[string]string) (output string, err error) {
 		return in["1"] + "_" + in[START], nil
 	})).AddInput("1", ToField("1")).
-		AddInputWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
+		AddInputWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
 
 	wf.AddEnd("2", ToField("2")).
-		AddEndWithOptions("1", []*FieldMapping{ToField("1")}, WithIndirectEdgeEnable())
+		AddEndWithOptions("1", []*FieldMapping{ToField("1")}, WithNoDirectDependency())
 
 	r, err := wf.Compile(context.Background())
 	assert.NoError(t, err)
@@ -645,20 +645,22 @@ func TestIndirectEdge(t *testing.T) {
 	assert.Equal(t, map[string]any{"1": "query_query", "2": "query_query_query"}, out)
 }
 
-func TestEdgesWithControlFlowOnly(t *testing.T) {
-	wf := NewWorkflow[string, string]()
-	wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
-		return "useless", nil
-	})).AddInput(START)
-	wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
-		return in + "_done", nil
-	})).AddInputWithOptions("0", nil, WithControlFlowOnly()).AddInputWithOptions(START, nil, WithIndirectEdgeEnable())
-	wf.AddEnd("1")
-	r, err := wf.Compile(context.Background())
-	assert.NoError(t, err)
-	out, err := r.Invoke(context.Background(), "hello")
-	assert.NoError(t, err)
-	assert.Equal(t, "hello_done", out)
+func TestDependencyWithNoInput(t *testing.T) {
+	t.Run("simple case", func(t *testing.T) {
+		wf := NewWorkflow[string, string]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return "useless", nil
+		})).AddInput(START)
+		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
+			return in + "_done", nil
+		})).AddDependency("0").AddInputWithOptions(START, nil, WithNoDirectDependency())
+		wf.AddEnd("1")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello_done", out)
+	})
 }
 
 func TestBranch(t *testing.T) {
@@ -667,7 +669,7 @@ func TestBranch(t *testing.T) {
 		wf := NewWorkflow[string, map[string]any]()
 		wf.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
-		})).AddInputWithOptions(START, nil, WithIndirectEdgeEnable())
+		})).AddInputWithOptions(START, nil, WithNoDirectDependency())
 
 		branch := NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START] == "hello" {
@@ -679,7 +681,7 @@ func TestBranch(t *testing.T) {
 			END: true,
 		})
 		wf.AddBranch("branch_1", branch).AddInput(START, ToField(START))
-		wf.AddEnd("1", ToField("1")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
+		wf.AddEnd("1", ToField("1")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
 		out, err := r.Invoke(ctx, "hello")
@@ -702,7 +704,7 @@ func TestBranch(t *testing.T) {
 		})).AddInput(START)
 		wf.AddLambdaNode("2", InvokableLambda(func(ctx context.Context, in string) (output string, err error) {
 			return in + "_" + in, nil
-		})).AddInputWithOptions("1", nil, WithIndirectEdgeEnable())
+		})).AddInputWithOptions("1", nil, WithNoDirectDependency())
 		wf.AddBranch("branch_1", NewGraphBranch(func(ctx context.Context, in map[string]any) (string, error) {
 			if in[START].(string) == "hello" {
 				return "2", nil
@@ -712,7 +714,7 @@ func TestBranch(t *testing.T) {
 			"2": true,
 			END: true,
 		})).AddInput(START, ToField(START)).AddInput("1", ToField("1"))
-		wf.AddEnd("2", ToField("2")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithIndirectEdgeEnable())
+		wf.AddEnd("2", ToField("2")).AddEndWithOptions(START, []*FieldMapping{ToField(START)}, WithNoDirectDependency())
 		r, err := wf.Compile(ctx)
 		assert.NoError(t, err)
 		out, err := r.Invoke(ctx, "hello")
