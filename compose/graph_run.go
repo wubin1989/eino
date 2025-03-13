@@ -59,7 +59,7 @@ type chanCall struct {
 	preProcessor, postProcessor *composableRunnable
 }
 
-type chanBuilder func(d []string) channel
+type chanBuilder func(d []string, t reflect.Type) channel
 
 type runner struct {
 	chanSubscribeTo map[string]*chanCall
@@ -413,17 +413,15 @@ func (r *runner) initTaskManager(runWrapper runnableCallWrapper, opts ...Option)
 func (r *runner) initChannelManager(isStream bool) *channelManager {
 	builder := r.chanBuilder
 	if builder == nil {
-		builder = func(d []string) channel {
-			return &pregelChannel{}
-		}
+		builder = pregelChannelBuilder
 	}
 
 	chs := make(map[string]channel)
-	for ch := range r.chanSubscribeTo {
-		chs[ch] = builder(r.invertedEdges[ch])
+	for ch, call := range r.chanSubscribeTo {
+		chs[ch] = builder(r.invertedEdges[ch], call.action.inputType)
 	}
 
-	chs[END] = builder(r.invertedEdges[END])
+	chs[END] = builder(r.invertedEdges[END], r.outputType)
 
 	return &channelManager{
 		isStream:   isStream,

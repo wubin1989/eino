@@ -19,16 +19,18 @@ package compose
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
-func dagChannelBuilder(dependencies []string) channel {
+func dagChannelBuilder(dependencies []string, inputType reflect.Type) channel {
 	waitList := make(map[string]dagChannelState, len(dependencies))
 	for _, dep := range dependencies {
 		waitList[dep] = unready
 	}
 	return &dagChannel{
-		values:   make(map[string]any),
-		waitList: waitList,
+		values:    make(map[string]any),
+		waitList:  waitList,
+		inputType: inputType,
 	}
 }
 
@@ -41,11 +43,12 @@ const (
 )
 
 type dagChannel struct {
-	values   map[string]any
-	waitList map[string]dagChannelState
-	value    any
-	skipped  bool
-	isReady  bool
+	values    map[string]any
+	waitList  map[string]dagChannelState
+	value     any
+	skipped   bool
+	isReady   bool
+	inputType reflect.Type
 }
 
 func (ch *dagChannel) update(ctx context.Context, ins map[string]any) error {
@@ -73,6 +76,11 @@ func (ch *dagChannel) get(ctx context.Context) (any, error) {
 	v := ch.value
 	ch.value = nil
 	ch.isReady = false
+
+	if v == nil {
+		v = newInstanceByType(ch.inputType).Interface()
+	}
+
 	return v, nil
 }
 

@@ -661,6 +661,34 @@ func TestDependencyWithNoInput(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "hello_done", out)
 	})
+
+	t.Run("simple control flow: [Start] --> [Node '0'] --> [End]", func(t *testing.T) {
+		// [Start] --> [Node "0"] --> [End]
+		wf := NewWorkflow[map[string]any, map[string]any]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in map[string]any) (output map[string]any, err error) {
+			return map[string]any{
+				"result":    "result from node 0",
+				"result_in": in,
+			}, nil
+		})).AddDependency(START)
+		wf.AddEnd("0", ToField("final_result"))
+		wf.AddEndWithOptions(START, []*FieldMapping{ToField("final_from_start")}, WithNoDirectDependency())
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		ret, err := r.Invoke(context.Background(), map[string]any{
+			"input": "hello",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"final_result": map[string]any{
+				"result":    "result from node 0",
+				"result_in": map[string]any{},
+			},
+			"final_from_start": map[string]any{
+				"input": "hello",
+			},
+		}, ret)
+	})
 }
 
 func TestBranch(t *testing.T) {

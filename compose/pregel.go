@@ -19,9 +19,10 @@ package compose
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
-func pregelChannelBuilder(_ []string) channel {
+func pregelChannelBuilder(_ []string, _ reflect.Type) channel {
 	return &pregelChannel{}
 }
 
