@@ -98,6 +98,14 @@ func MapFields(from, to string) *FieldMapping {
 //   - []string{"users", "admin"}  // map key access
 type FieldPath []string
 
+func (fp *FieldPath) join() string {
+	return strings.Join(*fp, pathSeparator)
+}
+
+func splitFieldPath(path string) FieldPath {
+	return strings.Split(path, pathSeparator)
+}
+
 // pathSeparator is a special character (Unit Separator) used internally to join path elements.
 // This character is chosen because it's extremely unlikely to appear in user-defined field names or map keys.
 const pathSeparator = "\x1F"

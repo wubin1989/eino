@@ -18,7 +18,9 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/cloudwego/eino/components/document"
 	"github.com/cloudwego/eino/components/embedding"
@@ -31,9 +33,10 @@ import (
 
 // WorkflowNode is the node of the Workflow.
 type WorkflowNode struct {
-	g         *graph
-	key       string
-	addInputs []func()
+	g            *graph
+	key          string
+	addInputs    []func()
+	staticValues map[string]any
 }
 
 // Workflow is wrapper of graph, replacing AddEdge with declaring dependencies and field mappings between nodes.
@@ -215,6 +218,18 @@ func (n *WorkflowNode) AddDependency(fromNodeKey string) *WorkflowNode {
 	return n.addDependencyRelation(fromNodeKey, nil, &workflowAddInputOpts{dependencyWithoutInput: true})
 }
 
+// SetStaticValue sets a static value for a field path that will be available
+// during workflow execution. These values are determined at compile time and
+// remain constant throughout the workflow's lifecycle.
+//
+// Example:
+//
+//	node.SetStaticValue(FieldPath{"query"}, "static query")
+func (n *WorkflowNode) SetStaticValue(path FieldPath, value any) *WorkflowNode {
+	n.staticValues[strings.Join(path, pathSeparator)] = value
+	return n
+}
+
 func (n *WorkflowNode) addDependencyRelation(fromNodeKey string, inputs []*FieldMapping, options *workflowAddInputOpts) *WorkflowNode {
 	for _, input := range inputs {
 		input.fromNodeKey = fromNodeKey
@@ -331,6 +346,19 @@ func (wf *Workflow[I, O]) addEndDependencyRelation(fromNodeKey string, inputs []
 
 func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOptions) (*composableRunnable, error) {
 	for _, n := range wf.workflowNodes {
+		const valueProviderSuffix = "\x1Fvalue\x1Fprovider"
+		if len(n.staticValues) > 0 {
+			provider := wf.AddLambdaNode(fmt.Sprintf("%s%s", n.key, valueProviderSuffix), valueProvider(n.staticValues)).AddInput(START)
+			fieldMappings := make([]*FieldMapping, 0, len(n.staticValues))
+			for path := range n.staticValues {
+				fieldPath := splitFieldPath(path)
+				fieldMappings = append(fieldMappings, MapFieldPaths(fieldPath, fieldPath))
+			}
+			n.AddInput(provider.key, fieldMappings...)
+		}
+	}
+
+	for _, n := range wf.workflowNodes {
 		for _, addInput := range n.addInputs {
 			addInput()
 		}
@@ -363,7 +391,7 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 }
 
 func (wf *Workflow[I, O]) initNode(key string) *WorkflowNode {
-	n := &WorkflowNode{g: wf.g, key: key}
+	n := &WorkflowNode{g: wf.g, key: key, staticValues: make(map[string]any)}
 	wf.workflowNodes[key] = n
 	return n
 }
@@ -392,4 +420,13 @@ func (wf *Workflow[I, O]) outputType() reflect.Type {
 
 func (wf *Workflow[I, O]) component() component {
 	return wf.g.component()
+}
+
+func valueProvider(prefilledValues map[string]any) *Lambda {
+	i := func(ctx context.Context, _ any, opts ...any) (map[string]any, error) {
+		return prefilledValues, nil
+
+	}
+
+	return anyLambda(i, nil, nil, nil)
 }

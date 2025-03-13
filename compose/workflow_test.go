@@ -691,6 +691,21 @@ func TestDependencyWithNoInput(t *testing.T) {
 	})
 }
 
+func TestPrefilledValue(t *testing.T) {
+	t.Run("prefill map", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in map[string]any) (output map[string]any, err error) {
+			return in, nil
+		})).AddInput(START, ToField(START)).SetStaticValue(FieldPath{"prefilled"}, "yo-ho")
+		wf.AddEnd("0")
+		r, err := wf.Compile(context.Background())
+		assert.NoError(t, err)
+		out, err := r.Invoke(context.Background(), "hello")
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"prefilled": "yo-ho", START: "hello"}, out)
+	})
+}
+
 func TestBranch(t *testing.T) {
 	ctx := context.Background()
 	t.Run("simple branch: one predecessor, two successor, one of them is END", func(t *testing.T) {
