@@ -60,8 +60,6 @@ func (m *FieldMapping) String() string {
 	return sb.String()
 }
 
-const pathSeparator = "."
-
 // FromField creates a FieldMapping that maps a single predecessor field to the entire successor input.
 // This is an exclusive mapping - once set, no other field mappings can be added since the successor input
 // has already been fully mapped.
@@ -86,6 +84,29 @@ func MapFields(from, to string) *FieldMapping {
 	return &FieldMapping{
 		from: from,
 		to:   to,
+	}
+}
+
+type FieldPath []string
+
+const pathSeparator = "\x1F"
+
+func FromFieldPath(fromFieldPath FieldPath) *FieldMapping {
+	return &FieldMapping{
+		from: strings.Join(fromFieldPath, pathSeparator),
+	}
+}
+
+func ToFieldPath(toFieldPath FieldPath) *FieldMapping {
+	return &FieldMapping{
+		to: strings.Join(toFieldPath, pathSeparator),
+	}
+}
+
+func MapFieldPaths(fromFieldPath, toFieldPath FieldPath) *FieldMapping {
+	return &FieldMapping{
+		from: strings.Join(fromFieldPath, pathSeparator),
+		to:   strings.Join(toFieldPath, pathSeparator),
 	}
 }
 
