@@ -4,7 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/internal/generic"
 )
 
 func TestWorkflowDSL(t *testing.T) {
@@ -66,4 +69,40 @@ func TestWorkflowDSL(t *testing.T) {
 
 	// 内外场支持的组件清单如何区分？
 	// coze，抖音支持的组件清单如何区分？
+}
+
+func TestGraphWithPassthrough(t *testing.T) {
+	dsl := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_passthrough"),
+		InputType:       TypeMeta{BasicType: BasicTypeString},
+		OutputType:      TypeMeta{BasicType: BasicTypeMap, MapType: generic.PtrOf(MapTypeStringAny)},
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		Nodes: []*NodeDSL{
+			{
+				Key:           "1",
+				ComponentType: ComponentOfPassthrough,
+				OutputKey:     generic.PtrOf("1"),
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, dsl)
+	assert.NoError(t, err)
+
+	out, err := InvokeCompiledGraph[string, map[string]any](ctx, c, "hello")
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{"1": "hello"}, out)
 }
