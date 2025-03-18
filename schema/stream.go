@@ -114,11 +114,11 @@ func (sw *StreamWriter[T]) Close() {
 
 // StreamReader the receiver of a stream.
 // created by Pipe function.
-// eg.
+// e.g.
 //
 //	sr, sw := schema.Pipe[string](3)
 //	// omit sending data
-//	// most of time, reader is returned by function, and used in another function.
+//	// most time, reader is returned by function, and used in another function.
 //
 //	for chunk, err := sr.Recv() {
 //		if errors.Is(err, io.EOF) {
@@ -269,8 +269,7 @@ type iStreamReader interface {
 type stream[T any] struct {
 	items chan streamItem[T]
 
-	closed   chan struct{}
-	isClosed uint32
+	closed chan struct{}
 }
 
 type streamItem[T any] struct {

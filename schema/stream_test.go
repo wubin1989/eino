@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -194,7 +196,7 @@ func TestNewStreamCopy(t *testing.T) {
 		wg := sync.WaitGroup{}
 		wg.Add(2)
 
-		//buf := scp[0].csr.parent.mem.buf
+		// buf := scp[0].csr.parent.mem.buf
 		go func() {
 			defer func() {
 				scp[0].Close()
@@ -221,7 +223,7 @@ func TestNewStreamCopy(t *testing.T) {
 
 		wg.Wait()
 
-		//assert.Equal(t, 0, buf.Len())
+		// assert.Equal(t, 0, buf.Len())
 	})
 
 	t.Run("test long time recv", func(t *testing.T) {
@@ -264,9 +266,9 @@ func TestNewStreamCopy(t *testing.T) {
 		}
 
 		wg.Wait()
-		//memo := copies[0].csr.parent.mem
-		//assert.Equal(t, true, memo.hasFinished)
-		//assert.Equal(t, 0, memo.buf.Len())
+		// memo := copies[0].csr.parent.mem
+		// assert.Equal(t, true, memo.hasFinished)
+		// assert.Equal(t, 0, memo.buf.Len())
 	})
 
 	t.Run("test closes", func(t *testing.T) {
@@ -572,4 +574,50 @@ func TestMultiStream(t *testing.T) {
 	if err != io.EOF {
 		t.Fatal("end stream haven't return EOF")
 	}
+}
+
+func BenchmarkStream(b *testing.B) {
+	b.Run("race_send_and_close", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			sr, sw := Pipe[string](10)
+			wg := sync.WaitGroup{}
+			wg.Add(2)
+
+			// Start goroutine to send data
+			go func() {
+				defer wg.Done()
+				defer sw.Close()
+
+				for k := 0; k < 100; k++ {
+					closed := sw.Send(strings.Repeat(strconv.Itoa(k), 1000), nil)
+					if closed {
+						break
+					}
+				}
+			}()
+
+			// Start a goroutine to close the stream
+			go func() {
+				defer wg.Done()
+				defer sr.Close()
+
+				time.Sleep(time.Millisecond) // Give some time for senders to start
+
+				for {
+					d, err := sr.Recv()
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					if err != nil {
+						b.Errorf("unpexted error: %v", err)
+						break
+					}
+
+					_ = d
+				}
+			}()
+
+			wg.Wait()
+		}
+	})
 }
