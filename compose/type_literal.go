@@ -9,13 +9,8 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-var defaultChatTemplateType = &ImplMeta{
-	ID:            "DefaultChatTemplate",
-	ComponentType: components.ComponentOfPrompt,
-}
-
 var passthrough = &ImplMeta{
-	ID:            "Passthrough",
+	TypeID:        "Passthrough",
 	ComponentType: ComponentOfPassthrough,
 }
 
@@ -36,20 +31,8 @@ var formatType = &TypeMeta{
 var implMap = map[string]*ImplMeta{
 	"Passthrough": passthrough,
 	"prompt.DefaultChatTemplate": {
-		ID:            "prompt.DefaultChatTemplate",
+		TypeID:        "prompt.DefaultChatTemplate",
 		ComponentType: components.ComponentOfPrompt,
-		InstantiationFunction: &FunctionMeta{
-			Name:       "prompt.FromMessages",
-			FuncValue:  reflect.ValueOf(prompt.FromMessages),
-			IsVariadic: true,
-			InputTypes: []TypeID{
-				"schema.Format",
-				"*schema.Message", // dependencies only appear as fields or nested fields within Config, or as parameters to factory functions
-			},
-			OutputTypes: []TypeID{
-				"prompt.ChatTemplate",
-			},
-		},
 	},
 }
 
@@ -70,7 +53,7 @@ var typeMap = map[TypeID]*TypeMeta{
 	},
 	"schema.MessageTemplate": {
 		ID:        "schema.MessageTemplate",
-		BasicType: BasicTypeInterface,
+		BasicType: BasicTypeInterface, // this is a slot
 	},
 	"schema.Format": {
 		ID:                "schema.Format",
@@ -82,7 +65,7 @@ var typeMap = map[TypeID]*TypeMeta{
 		ID:                "schema.messagePlaceholder",
 		BasicType:         BasicTypeStruct,
 		IsPtr:             true,
-		InterfaceType:     (*TypeID)(generic.PtrOf("schema.MessageTemplate")),
+		InterfaceType:     (*TypeID)(generic.PtrOf("schema.MessageTemplate")), // can be used to fill the slot with schema.MessageTemplate
 		InstantiationType: InstantiationTypeFunction,
 		FunctionMeta: &FunctionMeta{
 			Name:      "schema.MessagesPlaceholder",
@@ -101,43 +84,33 @@ var typeMap = map[TypeID]*TypeMeta{
 		BasicType:         BasicTypeStruct,
 		IsPtr:             true,
 		InstantiationType: InstantiationTypeUnmarshal,
-		InterfaceType:     (*TypeID)(generic.PtrOf("schema.MessageTemplate")),
+		InterfaceType:     (*TypeID)(generic.PtrOf("schema.MessageTemplate")), // can be used to fill the slot with schema.MessageTemplate
 		ReflectType:       generic.PtrOf(reflect.TypeOf(&schema.Message{})),
-	},
-	"schema.UserMessage": {
-		ID:                "schema.UserMessage",
-		BasicType:         BasicTypeStruct,
-		IsPtr:             true,
-		InstantiationType: InstantiationTypeFunction,
-		FunctionMeta: &FunctionMeta{
-			Name:      "schema.UserMessage",
-			FuncValue: reflect.ValueOf(schema.UserMessage),
-			InputTypes: []TypeID{
-				"string",
-			},
-			OutputTypes: []TypeID{
-				"*schema.Message",
-			},
-		},
-	},
-	"schema.SystemMessage": {
-		ID:                "schema.SystemMessage",
-		BasicType:         BasicTypeStruct,
-		IsPtr:             true,
-		InstantiationType: InstantiationTypeFunction,
-		FunctionMeta: &FunctionMeta{
-			Name:      "schema.SystemMessage",
-			FuncValue: reflect.ValueOf(schema.SystemMessage),
-			InputTypes: []TypeID{
-				"string",
-			},
-			OutputTypes: []TypeID{
-				"*schema.Message",
-			},
-		},
 	},
 	"prompts.ChatTemplate": {
 		ID:        "prompt.ChatTemplate",
 		BasicType: BasicTypeInterface,
+	},
+	"prompt.DefaultChatTemplate": {
+		ID:                "prompt.DefaultChatTemplate",
+		BasicType:         BasicTypeStruct,
+		IsPtr:             true,
+		InterfaceType:     (*TypeID)(generic.PtrOf("prompts.ChatTemplate")),
+		InstantiationType: InstantiationTypeFunction,
+		FunctionMeta: &FunctionMeta{
+			Name:       "prompt.FromMessages",
+			FuncValue:  reflect.ValueOf(prompt.FromMessages),
+			IsVariadic: true,
+			InputTypes: []TypeID{
+				"schema.Format",
+				"*schema.Message", // dependencies only appear as fields or nested fields within Config, or as parameters to factory functions
+
+				// we can know this is an interface type, which is a slot
+				//"schema.MessageTemplate",
+			},
+			OutputTypes: []TypeID{
+				"prompt.ChatTemplate",
+			},
+		},
 	},
 }

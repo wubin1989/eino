@@ -10,8 +10,6 @@ type GraphDSL struct {
 	ID              string           `json:"id"`
 	Namespace       string           `json:"namespace"`
 	Name            *string          `json:"name,omitempty"`
-	InputType       TypeMeta         `json:"input_type"`
-	OutputType      TypeMeta         `json:"output_type"`
 	StateType       *TypeMeta        `json:"state_type,omitempty"`
 	NodeTriggerMode *NodeTriggerMode `json:"node_trigger_mode,omitempty"`
 	MaxRunStep      *int             `json:"max_run_step,omitempty"`
@@ -24,8 +22,6 @@ type WorkflowDSL struct {
 	ID              string                  `json:"id"`
 	Namespace       string                  `json:"namespace"`
 	Name            string                  `json:"name"`
-	InputType       TypeMeta                `json:"input_type"`
-	OutputType      TypeMeta                `json:"output_type"`
 	StateType       *TypeMeta               `json:"state_type,omitempty"`
 	Nodes           []*WorkflowNodeDSL      `json:"nodes,omitempty"`
 	Branches        []*WorkflowBranchDSL    `json:"branches,omitempty"`
@@ -69,42 +65,6 @@ const (
 	FloatTypeFloat64 FloatType = "float64"
 )
 
-type ArrayType string
-
-const (
-	ArrayTypeString      ArrayType = "string"
-	ArrayTypeMessagePtr  ArrayType = "*Message"
-	ArrayTypeAny         ArrayType = "any"
-	ArrayTypeDocumentPtr ArrayType = "*Document"
-)
-
-type MapType string
-
-const (
-	MapTypeStringAny MapType = "map[string]any"
-)
-
-type StructType string
-
-const (
-	StructTypeMessage  StructType = "Message"
-	StructTypeDocument StructType = "Document"
-)
-
-type InterfaceType string
-
-const (
-	InterfaceTypeAny                 InterfaceType = "any"
-	InterfaceTypeChatModel           InterfaceType = "ChatModel"
-	InterfaceTypeChatTemplate        InterfaceType = "ChatTemplate"
-	InterfaceTypeDocumentTransformer InterfaceType = "DocumentTransformer"
-	InterfaceTypeDocumentLoader      InterfaceType = "DocumentLoader"
-	InterfaceTypeEmbedding           InterfaceType = "Embedding"
-	InterfaceTypeIndexer             InterfaceType = "Indexer"
-	InterfaceTypeRetriever           InterfaceType = "Retriever"
-	InterfaceTypeTool                InterfaceType = "Tool"
-)
-
 type TypeID string
 
 // TypeMeta is the metadata of a type.
@@ -115,17 +75,13 @@ type TypeID string
 // 4. 作为 State 的类型
 // 5. 作为 Lambda 的输入或输出类型
 type TypeMeta struct {
-	ID            TypeID       `json:"id"`
-	Version       *string      `json:"version,omitempty"` // TODO: how to define version?
-	BasicType     BasicType    `json:"basic_type"`
-	IsPtr         bool         `json:"is_ptr"`
-	IntegerType   *IntegerType `json:"integer_type,omitempty"`
-	FloatType     *FloatType   `json:"float_type,omitempty"`
-	ArrayType     *ArrayType   `json:"array_type,omitempty"`
-	MapType       *MapType     `json:"map_type,omitempty"`
-	StructType    *StructType  `json:"struct_type,omitempty"`
-	InterfaceType *TypeID      `json:"interface_type,omitempty"`
-
+	ID                TypeID            `json:"id"`
+	Version           *string           `json:"version,omitempty"` // TODO: how to define version?
+	BasicType         BasicType         `json:"basic_type"`
+	IsPtr             bool              `json:"is_ptr"`
+	IntegerType       *IntegerType      `json:"integer_type,omitempty"`
+	FloatType         *FloatType        `json:"float_type,omitempty"`
+	InterfaceType     *TypeID           `json:"interface_type,omitempty"`
 	InstantiationType InstantiationType `json:"instantiation_type,omitempty"`
 	ReflectType       *reflect.Type     `json:"-"`
 	FunctionMeta      *FunctionMeta     `json:"function_meta,omitempty"`
@@ -150,9 +106,8 @@ type FunctionMeta struct {
 }
 
 type ImplMeta struct {
-	ID                    string
-	ComponentType         components.Component
-	InstantiationFunction *FunctionMeta `json:"instantiation_function"`
+	TypeID        TypeID               `json:"type_id"`
+	ComponentType components.Component `json:"component_type"`
 }
 
 type InstantiationType string
@@ -167,7 +122,9 @@ type NodeDSL struct {
 	Key                    string        `json:"key"`
 	ImplID                 string        `json:"impl_id"`
 	Name                   *string       `json:"name,omitempty"`
-	Configs                []string      `json:"configs,omitempty"`
+	Config                 *string       `json:"config,omitempty"`  // use when there is only one input parameter other than ctx
+	Configs                []Config      `json:"configs,omitempty"` // use when there are multiple input parameters other than ctx
+	Slots                  []Slot        `json:"slots,omitempty"`
 	InputKey               *string       `json:"input_key,omitempty"`
 	OutputKey              *string       `json:"output_key,omitempty"`
 	GraphDSL               *GraphDSL     `json:"graph_dsl,omitempty"`
@@ -175,6 +132,32 @@ type NodeDSL struct {
 	StatePostHandler       *FunctionMeta `json:"state_post_handler,omitempty"`
 	StreamStatePreHandler  *FunctionMeta `json:"stream_state_pre_handler,omitempty"`
 	StreamStatePostHandler *FunctionMeta `json:"stream_state_post_handler,omitempty"`
+}
+
+type Config struct {
+	Index int    `json:"index"`
+	Value string `json:"value"`
+}
+
+type Slot struct {
+	TypeID TypeID `json:"type_id"` // the actual type ID of the slot instance. BasicType should not be interface
+
+	// the JSONPath of the slot within factory function's input parameters.
+	// e.g.
+	//
+	//  // for Retriever implementations' Embedding
+	//  path = "$.Embedding"
+	//
+	//  // for ToolsNode's []BaseTool
+	//  path = "$.Tools[0]"
+	//
+	//  // for DefaultChatTemplate's []MessageTemplate
+	//  path = "$[1][0]"
+	Path string `json:"path"`
+
+	Config  *string  `json:"config,omitempty"`
+	Configs []Config `json:"configs,omitempty"`
+	Slots   []Slot   `json:"slots,omitempty"` // nested slots
 }
 
 type EdgeDSL struct {
