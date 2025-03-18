@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/bytedance/sonic"
+
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/schema"
 )
@@ -97,9 +99,86 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 
 	// TODO: state handlers
 
-	switch dsl.ComponentType {
+	implMeta, ok := implMap[dsl.ImplID]
+	if !ok {
+		return fmt.Errorf("impl not found: %v", dsl.ImplID)
+	}
+
+	configs := dsl.Configs
+
+	switch implMeta.ComponentType {
 	case components.ComponentOfChatModel:
 	case components.ComponentOfPrompt:
+		f := implMeta.InstantiationFunction
+		if f == nil {
+			return fmt.Errorf("instantiation function not found: %v", dsl.ImplID)
+		}
+
+		configValues := make([]reflect.Value, 0, len(configs))
+		for i, conf := range configs {
+			var fTypeID TypeID
+			if i >= len(f.InputTypes) {
+				if !f.IsVariadic {
+					return fmt.Errorf("configs length mismatch: given %d, defined %d", len(configs), len(f.InputTypes))
+				}
+				fTypeID = f.InputTypes[len(f.InputTypes)-1]
+			} else {
+				fTypeID = f.InputTypes[i]
+			}
+
+			fType, ok := typeMap[fTypeID]
+			if !ok {
+				return fmt.Errorf("type not found: %v", fTypeID)
+			}
+
+			switch fType.InstantiationType {
+			case InstantiationTypeLiteral:
+				// TODO: literal
+			case InstantiationTypeFunction:
+				// TODO: function
+			case InstantiationTypeUnmarshal:
+				// TODO: reflect
+				rTypePtr := fType.ReflectType
+				if rTypePtr == nil {
+					return fmt.Errorf("reflect type not found: %v", fTypeID)
+				}
+				rType := *rTypePtr
+				isPtr := rType.Kind() == reflect.Ptr
+				if !isPtr {
+					rType = reflect.PointerTo(rType)
+				}
+				instance := newInstanceByType(rType).Interface()
+				err := sonic.Unmarshal([]byte(conf), instance)
+				if err != nil {
+					return err
+				}
+
+				rValue := reflect.ValueOf(instance)
+				if !isPtr {
+					rValue = rValue.Elem()
+				}
+				configValues = append(configValues, rValue)
+			default:
+				return fmt.Errorf("unsupported instantiation type: %v", fType.InstantiationType)
+			}
+		}
+
+		factoryFn := implMeta.InstantiationFunction.FuncValue
+		results := factoryFn.Call(configValues)
+
+		// TODO: handle the results
+
+		addFn, ok := comp2AddFn[implMeta.ComponentType]
+		if !ok {
+			return fmt.Errorf("add node function not found: %v", implMeta.ComponentType)
+		}
+		results = addFn.Call(append([]reflect.Value{reflect.ValueOf(g), reflect.ValueOf(dsl.Key), results[0]}))
+		if len(results) != 1 {
+			return fmt.Errorf("add node function return value length mismatch: given %d, defined %d", len(results), 1)
+		}
+		if results[0].Interface() != nil {
+			return results[0].Interface().(error)
+		}
 	case components.ComponentOfRetriever:
 	case components.ComponentOfIndexer:
 	case components.ComponentOfEmbedding:
@@ -114,7 +193,7 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	case ComponentOfPassthrough:
 		return g.AddPassthroughNode(dsl.Key, addNodeOpts...)
 	default:
-		return fmt.Errorf("unsupported component type: %v", dsl.ComponentType)
+		return fmt.Errorf("unsupported component type: %v", implMeta.ComponentType)
 	}
 
 	return nil

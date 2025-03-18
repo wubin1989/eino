@@ -1,6 +1,10 @@
 package compose
 
-import "github.com/cloudwego/eino/components"
+import (
+	"reflect"
+
+	"github.com/cloudwego/eino/components"
+)
 
 type GraphDSL struct {
 	ID              string           `json:"id"`
@@ -101,6 +105,8 @@ const (
 	InterfaceTypeTool                InterfaceType = "Tool"
 )
 
+type TypeID string
+
 // TypeMeta is the metadata of a type.
 // 使用场景：
 // 1. 作为 Workflow 整体的输入或输出类型
@@ -109,16 +115,20 @@ const (
 // 4. 作为 State 的类型
 // 5. 作为 Lambda 的输入或输出类型
 type TypeMeta struct {
-	ID            string         `json:"id"`
-	Version       *string        `json:"version,omitempty"` // TODO: how to define version?
-	BasicType     BasicType      `json:"basic_type"`
-	IsPtr         bool           `json:"is_ptr"`
-	IntegerType   *IntegerType   `json:"integer_type,omitempty"`
-	FloatType     *FloatType     `json:"float_type,omitempty"`
-	ArrayType     *ArrayType     `json:"array_type,omitempty"`
-	MapType       *MapType       `json:"map_type,omitempty"`
-	StructType    *StructType    `json:"struct_type,omitempty"`
-	InterfaceType *InterfaceType `json:"interface_type,omitempty"`
+	ID            TypeID       `json:"id"`
+	Version       *string      `json:"version,omitempty"` // TODO: how to define version?
+	BasicType     BasicType    `json:"basic_type"`
+	IsPtr         bool         `json:"is_ptr"`
+	IntegerType   *IntegerType `json:"integer_type,omitempty"`
+	FloatType     *FloatType   `json:"float_type,omitempty"`
+	ArrayType     *ArrayType   `json:"array_type,omitempty"`
+	MapType       *MapType     `json:"map_type,omitempty"`
+	StructType    *StructType  `json:"struct_type,omitempty"`
+	InterfaceType *TypeID      `json:"interface_type,omitempty"`
+
+	InstantiationType InstantiationType `json:"instantiation_type,omitempty"`
+	ReflectType       *reflect.Type     `json:"-"`
+	FunctionMeta      *FunctionMeta     `json:"function_meta,omitempty"`
 }
 
 type FieldMeta struct {
@@ -131,22 +141,40 @@ type StructMeta struct {
 	Name   string       `json:"name"`
 }
 
+type FunctionMeta struct {
+	Name        string        `json:"name"`
+	FuncValue   reflect.Value `json:"-"`
+	IsVariadic  bool          `json:"is_variadic,omitempty"`
+	InputTypes  []TypeID      `json:"input_types,omitempty"`
+	OutputTypes []TypeID      `json:"output_types,omitempty"`
+}
+
+type ImplMeta struct {
+	ID                    string
+	ComponentType         components.Component
+	InstantiationFunction *FunctionMeta `json:"instantiation_function"`
+}
+
+type InstantiationType string
+
+const (
+	InstantiationTypeLiteral   InstantiationType = "literal"
+	InstantiationTypeFunction  InstantiationType = "function"
+	InstantiationTypeUnmarshal InstantiationType = "unmarshal"
+)
+
 type NodeDSL struct {
-	Key                    string               `json:"key"`
-	ComponentType          components.Component `json:"component_type"`
-	InputType              *TypeMeta            `json:"input_type,omitempty"`
-	OutputType             *TypeMeta            `json:"output_type,omitempty"`
-	ImplementationType     *TypeMeta            `json:"implementation_type,omitempty"`
-	ConfigType             *TypeMeta            `json:"config_type,omitempty"`
-	InstantiationFunction  *TypeMeta            `json:"instantiation_function,omitempty"`
-	Name                   *string              `json:"name,omitempty"`
-	InputKey               *string              `json:"input_key,omitempty"`
-	OutputKey              *string              `json:"output_key,omitempty"`
-	GraphDSL               *GraphDSL            `json:"graph_dsl,omitempty"`
-	StatePreHandler        *TypeMeta            `json:"state_pre_handler,omitempty"`
-	StatePostHandler       *TypeMeta            `json:"state_post_handler,omitempty"`
-	StreamStatePreHandler  *TypeMeta            `json:"stream_state_pre_handler,omitempty"`
-	StreamStatePostHandler *TypeMeta            `json:"stream_state_post_handler,omitempty"`
+	Key                    string        `json:"key"`
+	ImplID                 string        `json:"impl_id"`
+	Name                   *string       `json:"name,omitempty"`
+	Configs                []string      `json:"configs,omitempty"`
+	InputKey               *string       `json:"input_key,omitempty"`
+	OutputKey              *string       `json:"output_key,omitempty"`
+	GraphDSL               *GraphDSL     `json:"graph_dsl,omitempty"`
+	StatePreHandler        *FunctionMeta `json:"state_pre_handler,omitempty"`
+	StatePostHandler       *FunctionMeta `json:"state_post_handler,omitempty"`
+	StreamStatePreHandler  *FunctionMeta `json:"stream_state_pre_handler,omitempty"`
+	StreamStatePostHandler *FunctionMeta `json:"stream_state_post_handler,omitempty"`
 }
 
 type EdgeDSL struct {
