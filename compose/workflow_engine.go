@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/bytedance/sonic"
 
@@ -104,7 +106,7 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	switch implMeta.ComponentType {
 	case components.ComponentOfChatModel:
 	case components.ComponentOfPrompt:
-		result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs)
+		result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
 		if err != nil {
 			return err
 		}
@@ -138,7 +140,180 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	return nil
 }
 
-func (t *TypeMeta) InstantiateByUnmarshal(value string) (reflect.Value, error) {
+// pathSegment represents a parsed segment of a JSONPath
+type pathSegment struct {
+	field    string // field or map key name
+	arrayIdx int    // array index if present, -1 if not
+	isArray  bool   // whether this segment contains an array index
+}
+
+// parsePathSegment parses a path segment and returns its components
+func parsePathSegment(segment string) (pathSegment, error) {
+	result := pathSegment{arrayIdx: -1}
+
+	if idx := strings.Index(segment, "["); idx != -1 {
+		if !strings.HasSuffix(segment, "]") {
+			return result, fmt.Errorf("invalid array syntax in segment: %s", segment)
+		}
+		result.isArray = true
+		result.field = segment[:idx]
+
+		// Parse array index
+		idxStr := segment[idx+1 : len(segment)-1]
+		index, err := strconv.Atoi(idxStr)
+		if err != nil {
+			return result, fmt.Errorf("invalid array index at %s: %v", segment, err)
+		}
+		result.arrayIdx = index
+	} else {
+		result.field = segment
+	}
+
+	return result, nil
+}
+
+// dereferencePointer follows pointer chain until a non-pointer value is found
+func dereferencePointer(current reflect.Value) reflect.Value {
+	for current.Kind() == reflect.Ptr {
+		if current.IsNil() {
+			current.Set(reflect.New(current.Type().Elem()))
+		}
+		current = current.Elem()
+	}
+	return current
+}
+
+// handleMapAccess handles access to map fields and creates/updates values as needed
+func handleMapAccess(current reflect.Value, key string, isLast bool, value reflect.Value) (reflect.Value, error) {
+	if current.IsNil() {
+		current.Set(reflect.MakeMap(current.Type()))
+	}
+
+	if isLast {
+		if current.Type().Elem().Kind() == reflect.Ptr {
+			ptr := reflect.New(current.Type().Elem().Elem())
+			ptr.Elem().Set(value)
+			current.SetMapIndex(reflect.ValueOf(key), ptr)
+		} else {
+			current.SetMapIndex(reflect.ValueOf(key), value)
+		}
+		return reflect.Value{}, nil
+	}
+
+	fieldValue := current.MapIndex(reflect.ValueOf(key))
+	if !fieldValue.IsValid() {
+		if current.Type().Elem().Kind() == reflect.Ptr {
+			fieldValue = reflect.New(current.Type().Elem().Elem())
+			current.SetMapIndex(reflect.ValueOf(key), fieldValue)
+			fieldValue = fieldValue.Elem()
+		} else {
+			fieldValue = reflect.New(current.Type().Elem()).Elem()
+			current.SetMapIndex(reflect.ValueOf(key), fieldValue)
+		}
+	} else if current.Type().Elem().Kind() != reflect.Ptr {
+		newValue := reflect.New(current.Type().Elem()).Elem()
+		newValue.Set(fieldValue)
+		fieldValue = newValue
+		current.SetMapIndex(reflect.ValueOf(key), fieldValue)
+	}
+
+	return fieldValue, nil
+}
+
+// handleArrayAccess handles access to array/slice elements
+func handleArrayAccess(current reflect.Value, index int, isLast bool, value reflect.Value) (reflect.Value, error) {
+	if !current.IsValid() || current.Kind() != reflect.Slice {
+		return reflect.Value{}, fmt.Errorf("expected slice, got %v", current.Kind())
+	}
+
+	if current.IsNil() {
+		current.Set(reflect.MakeSlice(current.Type(), 0, 0))
+	}
+
+	// Grow slice if needed
+	for current.Len() <= index {
+		current.Set(reflect.Append(current, reflect.Zero(current.Type().Elem())))
+	}
+
+	if isLast {
+		return reflect.Value{}, setValue(current.Index(index), value)
+	}
+
+	return current.Index(index), nil
+}
+
+// setFieldByJSONPath sets a field in the target struct using a JSONPath
+func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) error {
+	if path == "" {
+		return fmt.Errorf("empty path")
+	}
+
+	// Remove the leading $ if present
+	if path[0] == '$' {
+		path = path[1:]
+	}
+
+	// Split the path into segments
+	segments := strings.Split(strings.Trim(path, "."), ".")
+	current := target
+
+	// Navigate through the path
+	for i, segmentStr := range segments {
+		isLast := i == len(segments)-1
+
+		// Dereference any pointers
+		current = dereferencePointer(current)
+
+		// Parse the current segment
+		segment, err := parsePathSegment(segmentStr)
+		if err != nil {
+			return err
+		}
+
+		// Handle field access if present
+		if segment.field != "" {
+			if current.Kind() != reflect.Struct && current.Kind() != reflect.Map {
+				return fmt.Errorf("invalid path: expected struct or map at %s, got %v",
+					strings.Join(segments[:i], "."), current.Kind())
+			}
+
+			if current.Kind() == reflect.Map {
+				var err error
+				current, err = handleMapAccess(current, segment.field, isLast && !segment.isArray, value)
+				if err != nil {
+					return err
+				}
+				if isLast && !segment.isArray {
+					return nil
+				}
+			} else {
+				current = current.FieldByName(segment.field)
+				if !current.IsValid() {
+					return fmt.Errorf("field not found: %s", segment.field)
+				}
+				if isLast && !segment.isArray {
+					return setValue(current, value)
+				}
+			}
+		}
+
+		// Handle array access if present
+		if segment.isArray {
+			var err error
+			current, err = handleArrayAccess(current, segment.arrayIdx, isLast, value)
+			if err != nil {
+				return err
+			}
+			if isLast {
+				return nil
+			}
+		}
+	}
+
+	return nil
+}
+
+func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slots []Slot) (reflect.Value, error) {
 	rTypePtr := t.ReflectType
 	if rTypePtr == nil {
 		return reflect.Value{}, fmt.Errorf("reflect type not found: %v", t.ID)
@@ -159,10 +334,27 @@ func (t *TypeMeta) InstantiateByUnmarshal(value string) (reflect.Value, error) {
 		rValue = rValue.Elem()
 	}
 
+	for _, slot := range slots {
+		slotType, ok := typeMap[slot.TypeID]
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
+		}
+
+		slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		// Parse the JSONPath and set the field
+		if err := setFieldByJSONPath(rValue, slot.Path, slotInstance); err != nil {
+			return reflect.Value{}, fmt.Errorf("failed to set field by path %s: %v", slot.Path, err)
+		}
+	}
+
 	return rValue, nil
 }
 
-func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, configs []Config) (reflect.Value, error) {
+func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, configs []Config, slots []Slot) (reflect.Value, error) {
 	if config != nil && len(configs) > 0 {
 		return reflect.Value{}, fmt.Errorf("config and configs cannot be both set")
 	}
@@ -219,7 +411,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 
 			switch fType.InstantiationType {
 			case InstantiationTypeUnmarshal:
-				rValue, err := fType.InstantiateByUnmarshal(conf.Value)
+				rValue, err := fType.InstantiateByUnmarshal(ctx, conf.Value, slots)
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -258,7 +450,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 	return results[0], nil
 }
 
-func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config) (reflect.Value, error) {
+func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config, slots []Slot) (reflect.Value, error) {
 	switch t.BasicType {
 	case BasicTypeInteger, BasicTypeString, BasicTypeBool, BasicTypeNumber:
 		return reflect.ValueOf(t.InstantiateByLiteral()), nil
@@ -268,9 +460,9 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 			if config == nil {
 				return reflect.Value{}, fmt.Errorf("config is nil when instantiate by unmarshal: %v", t.ID)
 			}
-			return t.InstantiateByUnmarshal(*config)
+			return t.InstantiateByUnmarshal(ctx, *config, slots)
 		case InstantiationTypeFunction:
-			return t.InstantiateByFunction(ctx, config, configs)
+			return t.InstantiateByFunction(ctx, config, configs, slots)
 		default:
 			return reflect.Value{}, fmt.Errorf("unsupported instantiation type %v, for basicType: %v, typeID: %s",
 				t.InstantiationType, t.BasicType, t.ID)
@@ -374,4 +566,22 @@ func (t *TypeMeta) InstantiateByLiteral() any {
 	default:
 		panic(fmt.Sprintf("unsupported basic type: %s", t.BasicType))
 	}
+}
+
+// When setting the final value, add this helper function:
+func setValue(field reflect.Value, value reflect.Value) error {
+	if field.Kind() == reflect.Ptr {
+		// If field is a pointer but value isn't
+		if value.Kind() != reflect.Ptr {
+			// Create a new pointer of the appropriate type
+			ptr := reflect.New(field.Type().Elem())
+			// Set the pointed-to value
+			ptr.Elem().Set(value)
+			field.Set(ptr)
+			return nil
+		}
+	}
+	// Direct assignment for non-pointer fields
+	field.Set(value)
+	return nil
 }

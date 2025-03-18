@@ -127,14 +127,6 @@ func TestGraphWithChatTemplate(t *testing.T) {
 						Index: 0,
 						Value: "0",
 					},
-					{
-						Index: 1,
-						Value: `{"role":"system", "content":"you are a {certain} assistant"}`,
-					},
-					{
-						Index: 2,
-						Value: `{"role":"user", "content":"hello, {world}"}`,
-					},
 				},
 				Slots: []Slot{
 					{
