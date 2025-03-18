@@ -191,8 +191,13 @@ func handleMapAccess(current reflect.Value, key string, isLast bool, value refle
 
 	if isLast {
 		if current.Type().Elem().Kind() == reflect.Ptr {
+			// For pointer map values, create a new pointer and set its value
 			ptr := reflect.New(current.Type().Elem().Elem())
-			ptr.Elem().Set(value)
+			if value.Kind() == reflect.Ptr && !value.IsNil() {
+				ptr.Elem().Set(value.Elem())
+			} else {
+				ptr.Elem().Set(value)
+			}
 			current.SetMapIndex(reflect.ValueOf(key), ptr)
 		} else {
 			current.SetMapIndex(reflect.ValueOf(key), value)
@@ -202,22 +207,42 @@ func handleMapAccess(current reflect.Value, key string, isLast bool, value refle
 
 	fieldValue := current.MapIndex(reflect.ValueOf(key))
 	if !fieldValue.IsValid() {
+		// Create new value based on the map's element type
 		if current.Type().Elem().Kind() == reflect.Ptr {
-			fieldValue = reflect.New(current.Type().Elem().Elem())
-			current.SetMapIndex(reflect.ValueOf(key), fieldValue)
-			fieldValue = fieldValue.Elem()
+			// For pointer types, create a new pointer and set it in the map
+			newValue := reflect.New(current.Type().Elem().Elem())
+			current.SetMapIndex(reflect.ValueOf(key), newValue)
+			return newValue.Elem(), nil
 		} else {
-			fieldValue = reflect.New(current.Type().Elem()).Elem()
-			current.SetMapIndex(reflect.ValueOf(key), fieldValue)
+			before := current.Interface()
+			_ = before
+			// For non-pointer types, create a new value
+			newValue := reflect.New(current.Type().Elem()).Elem()
+			current.SetMapIndex(reflect.ValueOf(key), newValue)
+			// Return a copy that we can modify
+			after := current.Interface()
+			_ = after
+			return current.MapIndex(reflect.ValueOf(key)), nil
 		}
-	} else if current.Type().Elem().Kind() != reflect.Ptr {
-		newValue := reflect.New(current.Type().Elem()).Elem()
-		newValue.Set(fieldValue)
-		fieldValue = newValue
-		current.SetMapIndex(reflect.ValueOf(key), fieldValue)
 	}
 
-	return fieldValue, nil
+	// If the map value is a pointer, dereference it for modification
+	if current.Type().Elem().Kind() == reflect.Ptr {
+		if fieldValue.IsNil() {
+			newValue := reflect.New(current.Type().Elem().Elem())
+			current.SetMapIndex(reflect.ValueOf(key), newValue)
+			return newValue.Elem(), nil
+		}
+		return fieldValue.Elem(), nil
+	}
+
+	// For non-pointer map values, create a new value to modify
+	// This is crucial - we need a settable copy of the map value
+	newValue := reflect.New(current.Type().Elem()).Elem()
+	newValue.Set(fieldValue)
+	// We'll update the map with this value in setValue later
+	current.SetMapIndex(reflect.ValueOf(key), newValue)
+	return newValue, nil
 }
 
 // handleArrayAccess handles access to array/slice elements
@@ -257,8 +282,22 @@ func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) 
 	segments := strings.Split(strings.Trim(path, "."), ".")
 	current := target
 
+	// Keep track of parent values and their keys/indices for updating maps and slices
+	type parentNode struct {
+		value   reflect.Value
+		key     reflect.Value // For maps
+		index   int           // For slices/arrays
+		isMap   bool
+		isSlice bool
+	}
+
+	var parents []parentNode
+
 	// Navigate through the path
 	for i, segmentStr := range segments {
+		targetInterface := target.Interface()
+		_ = targetInterface
+
 		isLast := i == len(segments)-1
 
 		// Dereference any pointers
@@ -278,6 +317,13 @@ func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) 
 			}
 
 			if current.Kind() == reflect.Map {
+				// Store the current map as a parent before we descend
+				parents = append(parents, parentNode{
+					value: current,
+					key:   reflect.ValueOf(segment.field),
+					isMap: true,
+				})
+
 				var err error
 				current, err = handleMapAccess(current, segment.field, isLast && !segment.isArray, value)
 				if err != nil {
@@ -287,6 +333,8 @@ func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) 
 					return nil
 				}
 			} else {
+				// For struct fields, we don't need to track parent because
+				// structs are passed by reference when modifying their fields
 				current = current.FieldByName(segment.field)
 				if !current.IsValid() {
 					return fmt.Errorf("field not found: %s", segment.field)
@@ -299,6 +347,13 @@ func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) 
 
 		// Handle array access if present
 		if segment.isArray {
+			// Store the current slice as a parent before we descend
+			parents = append(parents, parentNode{
+				value:   current,
+				index:   segment.arrayIdx,
+				isSlice: true,
+			})
+
 			var err error
 			current, err = handleArrayAccess(current, segment.arrayIdx, isLast, value)
 			if err != nil {
@@ -583,5 +638,7 @@ func setValue(field reflect.Value, value reflect.Value) error {
 	}
 	// Direct assignment for non-pointer fields
 	field.Set(value)
+	inter := field.Interface()
+	_ = inter
 	return nil
 }

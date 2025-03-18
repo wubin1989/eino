@@ -88,6 +88,9 @@ func TestSetFieldByJSONPath(t *testing.T) {
 				if gotPtr, ok := got.(*string); ok {
 					return *gotPtr == want.(string)
 				}
+				if gotStr, ok := got.(string); ok {
+					return gotStr == want.(string)
+				}
 				return false
 			},
 		},
@@ -193,6 +196,8 @@ func TestSetFieldByJSONPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Uncomment to run all tests
+			// Remove this condition to run all tests
 			if tt.name != "map of structs" {
 				return
 			}
@@ -207,7 +212,21 @@ func TestSetFieldByJSONPath(t *testing.T) {
 				return
 			}
 
+			// For debugging - print the resulting struct
+			i := targetValue.Interface()
+			_ = i
+
 			if !tt.wantErr {
+				// For debugging - check if the value is immediately accessible
+				if tt.name == "map of structs" {
+					ts := targetValue.Interface().(TestStruct)
+					if nested, ok := ts.StructMap["key"]; ok {
+						t.Logf("Direct access: StructMap[key].Value = %v", nested.Value)
+					} else {
+						t.Logf("Key 'key' not found in StructMap")
+					}
+				}
+
 				// Verify the value was set correctly
 				got, err := getValueByPath(targetValue, tt.path)
 				if err != nil {
@@ -243,8 +262,7 @@ func getValueByPath(v reflect.Value, path string) (reflect.Value, error) {
 		// Dereference pointers until we get to the actual value
 		for current.Kind() == reflect.Ptr {
 			if current.IsNil() {
-				// Initialize nil pointer instead of returning error
-				current.Set(reflect.New(current.Type().Elem()))
+				return reflect.Value{}, fmt.Errorf("nil pointer encountered")
 			}
 			current = current.Elem()
 		}
@@ -258,11 +276,18 @@ func getValueByPath(v reflect.Value, path string) (reflect.Value, error) {
 
 				if current.Kind() == reflect.Map {
 					current = current.MapIndex(reflect.ValueOf(field))
+					if !current.IsValid() {
+						return reflect.Value{}, fmt.Errorf("key not found in map: %s", field)
+					}
+					// Always dereference pointers when reading
+					for current.Kind() == reflect.Ptr && !current.IsNil() {
+						current = current.Elem()
+					}
 				} else {
 					current = current.FieldByName(field)
-				}
-				if !current.IsValid() {
-					return reflect.Value{}, fmt.Errorf("field not found: %s", field)
+					if !current.IsValid() {
+						return reflect.Value{}, fmt.Errorf("field not found: %s", field)
+					}
 				}
 			}
 
@@ -284,14 +309,20 @@ func getValueByPath(v reflect.Value, path string) (reflect.Value, error) {
 
 		if current.Kind() == reflect.Map {
 			current = current.MapIndex(reflect.ValueOf(segment))
+			if !current.IsValid() {
+				return reflect.Value{}, fmt.Errorf("key not found in map: %s", segment)
+			}
+			// Always dereference pointers when reading
+			for current.Kind() == reflect.Ptr && !current.IsNil() {
+				current = current.Elem()
+			}
 		} else if current.Kind() == reflect.Struct {
 			current = current.FieldByName(segment)
+			if !current.IsValid() {
+				return reflect.Value{}, fmt.Errorf("field not found: %s", segment)
+			}
 		} else {
 			return reflect.Value{}, fmt.Errorf("expected struct or map at %s, got %v", segment, current.Kind())
-		}
-
-		if !current.IsValid() {
-			return reflect.Value{}, fmt.Errorf("invalid path segment: %s", segment)
 		}
 	}
 
