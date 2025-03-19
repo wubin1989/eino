@@ -140,234 +140,6 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	return nil
 }
 
-// pathSegment represents a parsed segment of a JSONPath
-type pathSegment struct {
-	field    string // field or map key name
-	arrayIdx int    // array index if present, -1 if not
-	isArray  bool   // whether this segment contains an array index
-}
-
-// parsePathSegment parses a path segment and returns its components
-func parsePathSegment(segment string) (pathSegment, error) {
-	result := pathSegment{arrayIdx: -1}
-
-	if idx := strings.Index(segment, "["); idx != -1 {
-		if !strings.HasSuffix(segment, "]") {
-			return result, fmt.Errorf("invalid array syntax in segment: %s", segment)
-		}
-		result.isArray = true
-		result.field = segment[:idx]
-
-		// Parse array index
-		idxStr := segment[idx+1 : len(segment)-1]
-		index, err := strconv.Atoi(idxStr)
-		if err != nil {
-			return result, fmt.Errorf("invalid array index at %s: %v", segment, err)
-		}
-		result.arrayIdx = index
-	} else {
-		result.field = segment
-	}
-
-	return result, nil
-}
-
-// dereferencePointer follows pointer chain until a non-pointer value is found
-func dereferencePointer(current reflect.Value) reflect.Value {
-	for current.Kind() == reflect.Ptr {
-		if current.IsNil() {
-			current.Set(reflect.New(current.Type().Elem()))
-		}
-		current = current.Elem()
-	}
-	return current
-}
-
-// handleMapAccess handles access to map fields and creates/updates values as needed
-func handleMapAccess(current reflect.Value, key string, isLast bool, value reflect.Value) (reflect.Value, error) {
-	if current.IsNil() {
-		current.Set(reflect.MakeMap(current.Type()))
-	}
-
-	if isLast {
-		if current.Type().Elem().Kind() == reflect.Ptr {
-			// For pointer map values, create a new pointer and set its value
-			ptr := reflect.New(current.Type().Elem().Elem())
-			if value.Kind() == reflect.Ptr && !value.IsNil() {
-				ptr.Elem().Set(value.Elem())
-			} else {
-				ptr.Elem().Set(value)
-			}
-			current.SetMapIndex(reflect.ValueOf(key), ptr)
-		} else {
-			current.SetMapIndex(reflect.ValueOf(key), value)
-		}
-		return reflect.Value{}, nil
-	}
-
-	fieldValue := current.MapIndex(reflect.ValueOf(key))
-	if !fieldValue.IsValid() {
-		// Create new value based on the map's element type
-		if current.Type().Elem().Kind() == reflect.Ptr {
-			// For pointer types, create a new pointer and set it in the map
-			newValue := reflect.New(current.Type().Elem().Elem())
-			current.SetMapIndex(reflect.ValueOf(key), newValue)
-			return newValue.Elem(), nil
-		} else {
-			before := current.Interface()
-			_ = before
-			// For non-pointer types, create a new value
-			newValue := reflect.New(current.Type().Elem()).Elem()
-			current.SetMapIndex(reflect.ValueOf(key), newValue)
-			// Return a copy that we can modify
-			after := current.Interface()
-			_ = after
-			return current.MapIndex(reflect.ValueOf(key)), nil
-		}
-	}
-
-	// If the map value is a pointer, dereference it for modification
-	if current.Type().Elem().Kind() == reflect.Ptr {
-		if fieldValue.IsNil() {
-			newValue := reflect.New(current.Type().Elem().Elem())
-			current.SetMapIndex(reflect.ValueOf(key), newValue)
-			return newValue.Elem(), nil
-		}
-		return fieldValue.Elem(), nil
-	}
-
-	// For non-pointer map values, create a new value to modify
-	// This is crucial - we need a settable copy of the map value
-	newValue := reflect.New(current.Type().Elem()).Elem()
-	newValue.Set(fieldValue)
-	// We'll update the map with this value in setValue later
-	current.SetMapIndex(reflect.ValueOf(key), newValue)
-	return newValue, nil
-}
-
-// handleArrayAccess handles access to array/slice elements
-func handleArrayAccess(current reflect.Value, index int, isLast bool, value reflect.Value) (reflect.Value, error) {
-	if !current.IsValid() || current.Kind() != reflect.Slice {
-		return reflect.Value{}, fmt.Errorf("expected slice, got %v", current.Kind())
-	}
-
-	if current.IsNil() {
-		current.Set(reflect.MakeSlice(current.Type(), 0, 0))
-	}
-
-	// Grow slice if needed
-	for current.Len() <= index {
-		current.Set(reflect.Append(current, reflect.Zero(current.Type().Elem())))
-	}
-
-	if isLast {
-		return reflect.Value{}, setValue(current.Index(index), value)
-	}
-
-	return current.Index(index), nil
-}
-
-// setFieldByJSONPath sets a field in the target struct using a JSONPath
-func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) error {
-	if path == "" {
-		return fmt.Errorf("empty path")
-	}
-
-	// Remove the leading $ if present
-	if path[0] == '$' {
-		path = path[1:]
-	}
-
-	// Split the path into segments
-	segments := strings.Split(strings.Trim(path, "."), ".")
-	current := target
-
-	// Keep track of parent values and their keys/indices for updating maps and slices
-	type parentNode struct {
-		value   reflect.Value
-		key     reflect.Value // For maps
-		index   int           // For slices/arrays
-		isMap   bool
-		isSlice bool
-	}
-
-	var parents []parentNode
-
-	// Navigate through the path
-	for i, segmentStr := range segments {
-		targetInterface := target.Interface()
-		_ = targetInterface
-
-		isLast := i == len(segments)-1
-
-		// Dereference any pointers
-		current = dereferencePointer(current)
-
-		// Parse the current segment
-		segment, err := parsePathSegment(segmentStr)
-		if err != nil {
-			return err
-		}
-
-		// Handle field access if present
-		if segment.field != "" {
-			if current.Kind() != reflect.Struct && current.Kind() != reflect.Map {
-				return fmt.Errorf("invalid path: expected struct or map at %s, got %v",
-					strings.Join(segments[:i], "."), current.Kind())
-			}
-
-			if current.Kind() == reflect.Map {
-				// Store the current map as a parent before we descend
-				parents = append(parents, parentNode{
-					value: current,
-					key:   reflect.ValueOf(segment.field),
-					isMap: true,
-				})
-
-				var err error
-				current, err = handleMapAccess(current, segment.field, isLast && !segment.isArray, value)
-				if err != nil {
-					return err
-				}
-				if isLast && !segment.isArray {
-					return nil
-				}
-			} else {
-				// For struct fields, we don't need to track parent because
-				// structs are passed by reference when modifying their fields
-				current = current.FieldByName(segment.field)
-				if !current.IsValid() {
-					return fmt.Errorf("field not found: %s", segment.field)
-				}
-				if isLast && !segment.isArray {
-					return setValue(current, value)
-				}
-			}
-		}
-
-		// Handle array access if present
-		if segment.isArray {
-			// Store the current slice as a parent before we descend
-			parents = append(parents, parentNode{
-				value:   current,
-				index:   segment.arrayIdx,
-				isSlice: true,
-			})
-
-			var err error
-			current, err = handleArrayAccess(current, segment.arrayIdx, isLast, value)
-			if err != nil {
-				return err
-			}
-			if isLast {
-				return nil
-			}
-		}
-	}
-
-	return nil
-}
-
 func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.Value, error) {
 	if len(toPaths) == 0 {
 		return reflect.Value{}, fmt.Errorf("empty fieldPath")
@@ -392,6 +164,27 @@ func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.
 				}
 
 				destValue.SetMapIndex(key, toSet)
+
+				if parentMap.IsValid() {
+					parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
+				}
+
+				return originalDestValue, nil
+			}
+
+			if destValue.Kind() == reflect.Slice {
+				instantiateIfNeeded(destValue)
+
+				elem, err := checkAndExtractToSliceIndex(path, destValue)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+
+				if !toSet.Type().AssignableTo(elem.Type()) {
+					return reflect.Value{}, fmt.Errorf("field mapping to a slice element has a mismatched type. from=%v, to=%v", toSet.Type(), destValue.Type().Elem())
+				}
+
+				elem.Set(toSet)
 
 				if parentMap.IsValid() {
 					parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
@@ -433,6 +226,25 @@ func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.
 			parentMap = destValue
 			parentKey = path
 			destValue = valueValue
+
+			continue
+		}
+
+		if destValue.Kind() == reflect.Slice {
+			elem, err := checkAndExtractToSliceIndex(path, destValue)
+			if err != nil {
+				return reflect.Value{}, err
+			}
+
+			instantiateIfNeeded(elem)
+
+			if parentMap.IsValid() {
+				parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
+			}
+
+			parentMap = reflect.Value{}
+			parentKey = ""
+			destValue = elem
 
 			continue
 		}
@@ -487,23 +299,6 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slo
 	rValue := reflect.ValueOf(instance)
 	if !isPtr {
 		rValue = rValue.Elem()
-	}
-
-	for _, slot := range slots {
-		slotType, ok := typeMap[slot.TypeID]
-		if !ok {
-			return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
-		}
-
-		slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
-		if err != nil {
-			return reflect.Value{}, err
-		}
-
-		// Parse the JSONPath and set the field
-		if err := setFieldByJSONPath(rValue, slot.Path, slotInstance); err != nil {
-			return reflect.Value{}, fmt.Errorf("failed to set field by path %s: %v", slot.Path, err)
-		}
 	}
 
 	return rValue, nil
@@ -723,22 +518,41 @@ func (t *TypeMeta) InstantiateByLiteral() any {
 	}
 }
 
-// When setting the final value, add this helper function:
-func setValue(field reflect.Value, value reflect.Value) error {
-	if field.Kind() == reflect.Ptr {
-		// If field is a pointer but value isn't
-		if value.Kind() != reflect.Ptr {
-			// Create a new pointer of the appropriate type
-			ptr := reflect.New(field.Type().Elem())
-			// Set the pointed-to value
-			ptr.Elem().Set(value)
-			field.Set(ptr)
-			return nil
+// checkAndExtractToSliceIndex extracts and validates the slice index from the path
+func checkAndExtractToSliceIndex(path string, destValue reflect.Value) (reflect.Value, error) {
+	// Extract the index part in the form of "[1]"
+	startIndex := strings.Index(path, "[")
+	endIndex := strings.Index(path, "]")
+	if startIndex == -1 || endIndex == -1 || endIndex <= startIndex+1 {
+		return reflect.Value{}, fmt.Errorf("invalid slice index syntax in path: %s", path)
+	}
+	indexStr := path[startIndex+1 : endIndex]
+
+	// Parse the index from the extracted string
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return reflect.Value{}, fmt.Errorf("invalid slice index in path: %s", path)
+	}
+
+	// Check if the index is within the bounds of the slice
+	if index < 0 {
+		return reflect.Value{}, fmt.Errorf("slice index out of bounds: %d", index)
+	}
+
+	if index >= destValue.Len() {
+		// Reslice destValue to contain enough elements
+		newLen := index + 1
+		capacity := destValue.Cap()
+		if newLen > capacity {
+			// If the new length exceeds the capacity, create a new slice
+			newSlice := reflect.MakeSlice(destValue.Type(), newLen, newLen)
+			reflect.Copy(newSlice, destValue)
+			destValue.Set(newSlice)
+		} else {
+			// If the new length is within the capacity, just reslice
+			destValue.SetLen(newLen)
 		}
 	}
-	// Direct assignment for non-pointer fields
-	field.Set(value)
-	inter := field.Interface()
-	_ = inter
-	return nil
+
+	return destValue.Index(index), nil
 }

@@ -52,36 +52,30 @@ func TestAssignSlot(t *testing.T) {
 			value:   new(string),
 			wantErr: false,
 		},
-		/*{
+		{
 			name:    "slice index",
-			target:  &TestStruct{Slice: make([]string, 0)},
-			path:    "$.Slice[0]",
+			target:  &TestStruct{},
+			path:    FieldPath{"Slice", "[0]"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "slice pointer index",
-			target:  &TestStruct{SlicePtr: make([]*string, 0)},
-			path:    "$.SlicePtr[0]",
-			value:   "test",
+			target:  &TestStruct{},
+			path:    FieldPath{"SlicePtr", "[0]"},
+			value:   generic.PtrOf("test"),
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotPtr, ok := got.(*string); ok {
-					return *gotPtr == want.(string)
-				}
-				return false
-			},
-		},*/
+		},
 		{
 			name:    "map field",
-			target:  &TestStruct{Map: make(map[string]string)},
+			target:  &TestStruct{},
 			path:    FieldPath{"Map", "key"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "map pointer field",
-			target:  &TestStruct{MapPtr: make(map[string]*string)},
+			target:  &TestStruct{},
 			path:    FieldPath{"MapPtr", "key"},
 			value:   generic.PtrOf("test"),
 			wantErr: false,
@@ -102,38 +96,41 @@ func TestAssignSlot(t *testing.T) {
 		},
 		{
 			name:    "map of structs",
-			target:  &TestStruct{StructMap: make(map[string]Nested)},
+			target:  &TestStruct{},
 			path:    FieldPath{"StructMap", "key", "Value"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "map of struct pointers",
-			target:  &TestStruct{PtrMap: make(map[string]*Nested)},
+			target:  &TestStruct{},
 			path:    FieldPath{"PtrMap", "key", "Value"},
 			value:   "test",
 			wantErr: false,
 		},
-		/*{
+		{
 			name:    "slice of structs",
-			target:  &TestStruct{SliceNest: make([]Nested, 0)},
-			path:    "$.SliceNest[0].Value",
+			target:  &TestStruct{},
+			path:    FieldPath{"SliceNest", "[0]", "Value"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "slice of struct pointers",
-			target:  &TestStruct{SlicePtrNest: make([]*Nested, 0)},
-			path:    "$.SlicePtrNest[0].Value",
+			target:  &TestStruct{},
+			path:    FieldPath{"SlicePtrNest", "[0]", "Value"},
 			value:   "test",
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotStr, ok := got.(string); ok {
-					return gotStr == want.(string)
-				}
-				return false
+		},
+		{
+			name:   "top level slice",
+			target: []Nested{},
+			path:   FieldPath{"[1]"},
+			value: Nested{
+				Value: "test",
 			},
-		},*/
+			wantErr: false,
+		},
 		// Error cases
 		{
 			name:    "empty path",
@@ -149,13 +146,13 @@ func TestAssignSlot(t *testing.T) {
 			value:   "test",
 			wantErr: true,
 		},
-		/*{
+		{
 			name:    "invalid array index",
 			target:  &TestStruct{},
-			path:    "$.Slice[invalid]",
+			path:    FieldPath{"Slice", "[invalid]"},
 			value:   "test",
 			wantErr: true,
-		},*/
+		},
 		{
 			name:    "path to non-struct",
 			target:  &TestStruct{},
@@ -167,7 +164,7 @@ func TestAssignSlot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			targetValue := reflect.ValueOf(tt.target).Elem()
+			targetValue := newInstanceByType(reflect.TypeOf(tt.target))
 
 			_, err := assignSlot(targetValue, tt.value, tt.path)
 

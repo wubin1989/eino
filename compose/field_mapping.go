@@ -347,7 +347,11 @@ func newInstanceByType(typ reflect.Type) reflect.Value {
 	case reflect.Map:
 		return reflect.MakeMap(typ)
 	case reflect.Slice, reflect.Array:
-		return reflect.MakeSlice(typ, 0, 0)
+		elemType := typ.Elem()
+		sliceType := reflect.SliceOf(elemType)
+		slice := reflect.New(sliceType).Elem()
+		slice.Set(reflect.MakeSlice(sliceType, 0, 0))
+		return slice
 	case reflect.Ptr:
 		typ = typ.Elem()
 		origin := reflect.New(typ)
@@ -356,7 +360,7 @@ func newInstanceByType(typ reflect.Type) reflect.Value {
 		for typ.Kind() == reflect.Ptr {
 			typ = typ.Elem()
 			inst = inst.Elem()
-			inst.Set(reflect.New(typ))
+			inst.Set(newInstanceByType(typ))
 		}
 
 		return origin
