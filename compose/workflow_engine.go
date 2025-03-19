@@ -34,7 +34,7 @@ func InvokeCompiledGraph[In, Out any](ctx context.Context, g *CompiledGraph, inp
 	return out, nil
 }
 
-func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
+func NewGraphFromDSL(ctx context.Context, dsl *GraphDSL) (*Graph[any, any], error) {
 	newGraphOptions := make([]NewGraphOption, 0)
 	if dsl.StateType != nil {
 		stateType, ok := typeMap[*dsl.StateType]
@@ -71,6 +71,15 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
 		if err := graphAddBranch(ctx, g.graph, branch); err != nil {
 			return nil, err
 		}
+	}
+
+	return g, nil
+}
+
+func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
+	g, err := NewGraphFromDSL(ctx, dsl)
+	if err != nil {
+		return nil, err
 	}
 
 	compileOptions := make([]GraphCompileOption, 0)
@@ -140,6 +149,28 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		}
 		handlerFunc := streamStateHandler(handler)
 		addNodeOpts = append(addNodeOpts, WithStreamStatePostHandler(handlerFunc))
+	}
+
+	if dsl.GraphDSL != nil {
+		subGraph, err := NewGraphFromDSL(ctx, dsl.GraphDSL)
+		if err != nil {
+			return err
+		}
+
+		compileOptions := make([]GraphCompileOption, 0)
+		if dsl.GraphDSL.NodeTriggerMode != nil {
+			compileOptions = append(compileOptions, WithNodeTriggerMode(*dsl.GraphDSL.NodeTriggerMode))
+		}
+		if dsl.GraphDSL.MaxRunStep != nil {
+			compileOptions = append(compileOptions, WithMaxRunSteps(*dsl.GraphDSL.MaxRunStep))
+		}
+		if dsl.GraphDSL.Name != nil {
+			compileOptions = append(compileOptions, WithGraphName(*dsl.GraphDSL.Name))
+		}
+
+		addNodeOpts = append(addNodeOpts, WithGraphCompileOptions(compileOptions...))
+
+		return g.AddGraphNode(dsl.Key, subGraph, addNodeOpts...)
 	}
 
 	implMeta, ok := implMap[dsl.ImplID]

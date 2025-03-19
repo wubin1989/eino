@@ -604,6 +604,68 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 	assert.Equal(t, int32(1), globalPost.Load())
 }
 
+func TestDSLWithSubGraph(t *testing.T) {
+	subGraphDSL := &GraphDSL{
+		ID:              "test_sub",
+		Namespace:       "test_sub",
+		Name:            generic.PtrOf("test_sub_graph"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		Nodes: []*NodeDSL{
+			{
+				Key:    "1",
+				ImplID: "lambda.MessagePtrToList",
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+
+	parentGraphDSL := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_parent_graph"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		Nodes: []*NodeDSL{
+			{
+				Key:      "1",
+				GraphDSL: subGraphDSL,
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, parentGraphDSL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	assert.NoError(t, err)
+	assert.Equal(t, []*schema.Message{
+		{
+			Role:    schema.User,
+			Content: "hello",
+		},
+	}, out)
+}
+
 type testRetriever struct{}
 
 type testRetrieverConfig struct {
