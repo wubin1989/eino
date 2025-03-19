@@ -31,7 +31,8 @@ var implMap = map[string]*ImplMeta{
 }
 
 var comp2AddFn = map[components.Component]reflect.Value{
-	components.ComponentOfPrompt: reflect.ValueOf((*graph).AddChatTemplateNode),
+	components.ComponentOfPrompt:    reflect.ValueOf((*graph).AddChatTemplateNode),
+	components.ComponentOfRetriever: reflect.ValueOf((*graph).AddRetrieverNode),
 }
 
 var typeMap = map[TypeID]*TypeMeta{
@@ -106,5 +107,13 @@ var typeMap = map[TypeID]*TypeMeta{
 				"prompt.ChatTemplate",
 			},
 		},
+	},
+	"retriever.Retriever": {
+		ID:        "retriever.Retriever",
+		BasicType: BasicTypeInterface,
+	},
+	"embedding.Embedder": {
+		ID:        "embedding.Embedder",
+		BasicType: BasicTypeInterface,
 	},
 }

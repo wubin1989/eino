@@ -137,6 +137,7 @@ type NodeDSL struct {
 type Config struct {
 	Index int    `json:"index"`
 	Value string `json:"value"`
+	Slots []Slot `json:"slots,omitempty"`
 }
 
 type Slot struct {

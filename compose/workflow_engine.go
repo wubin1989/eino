@@ -10,7 +10,6 @@ import (
 
 	"github.com/bytedance/sonic"
 
-	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/internal/generic"
 )
 
@@ -105,25 +104,9 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		return fmt.Errorf("type not found: %v", implMeta.TypeID)
 	}
 
-	switch implMeta.ComponentType {
+	/*switch implMeta.ComponentType {
 	case components.ComponentOfChatModel:
 	case components.ComponentOfPrompt:
-		result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
-		if err != nil {
-			return err
-		}
-
-		addFn, ok := comp2AddFn[implMeta.ComponentType]
-		if !ok {
-			return fmt.Errorf("add node function not found: %v", implMeta.ComponentType)
-		}
-		results := addFn.Call(append([]reflect.Value{reflect.ValueOf(g), reflect.ValueOf(dsl.Key), result}))
-		if len(results) != 1 {
-			return fmt.Errorf("add node function return value length mismatch: given %d, defined %d", len(results), 1)
-		}
-		if results[0].Interface() != nil {
-			return results[0].Interface().(error)
-		}
 	case components.ComponentOfRetriever:
 	case components.ComponentOfIndexer:
 	case components.ComponentOfEmbedding:
@@ -137,6 +120,23 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	case ComponentOfWorkflow:
 	default:
 		return fmt.Errorf("unsupported component type: %v", implMeta.ComponentType)
+	}*/
+
+	result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
+	if err != nil {
+		return err
+	}
+
+	addFn, ok := comp2AddFn[implMeta.ComponentType]
+	if !ok {
+		return fmt.Errorf("add node function not found: %v", implMeta.ComponentType)
+	}
+	results := addFn.Call(append([]reflect.Value{reflect.ValueOf(g), reflect.ValueOf(dsl.Key), result}))
+	if len(results) != 1 {
+		return fmt.Errorf("add node function return value length mismatch: given %d, defined %d", len(results), 1)
+	}
+	if results[0].Interface() != nil {
+		return results[0].Interface().(error)
 	}
 
 	return nil
@@ -282,7 +282,7 @@ func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.
 	}
 }
 
-func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slots []Slot) (reflect.Value, error) {
+func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, conf Config) (reflect.Value, error) {
 	rTypePtr := t.ReflectType
 	if rTypePtr == nil {
 		return reflect.Value{}, fmt.Errorf("reflect type not found: %v", t.ID)
@@ -293,7 +293,7 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slo
 		rType = reflect.PointerTo(rType)
 	}
 	instance := newInstanceByType(rType).Interface()
-	err := sonic.Unmarshal([]byte(value), instance)
+	err := sonic.Unmarshal([]byte(conf.Value), instance)
 	if err != nil {
 		return reflect.Value{}, err
 	}
@@ -303,14 +303,27 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slo
 		rValue = rValue.Elem()
 	}
 
+	for _, slot := range conf.Slots {
+		slotType, ok := typeMap[slot.TypeID]
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
+		}
+
+		slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+
+		rValue, err = assignSlot(rValue, slotInstance.Interface(), slot.Path)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+	}
+
 	return rValue, nil
 }
 
-func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, configs []Config, slots []Slot) (reflect.Value, error) {
-	if config != nil && len(configs) > 0 {
-		return reflect.Value{}, fmt.Errorf("config and configs cannot be both set")
-	}
-
+func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config, slots []Slot) (reflect.Value, error) {
 	fMeta := t.FunctionMeta
 	if fMeta == nil {
 		return reflect.Value{}, fmt.Errorf("function meta not found: %v", t.ID)
@@ -328,26 +341,11 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 		if first == ctxType.ID {
 			nonCtxParamCount--
 			inputs[0] = reflect.ValueOf(ctx)
-			if config != nil {
-				configs = []Config{{
-					Index: 1,
-					Value: *config,
-				}}
-			}
-		} else {
-			if config != nil {
-				configs = []Config{
-					{
-						Index: 0,
-						Value: *config,
-					},
-				}
-			}
 		}
 
-		for _, conf := range configs {
+		for i, conf := range configs {
 			var fTypeID TypeID
-			if conf.Index >= nonCtxParamCount {
+			if i >= nonCtxParamCount {
 				if !fMeta.IsVariadic {
 					return reflect.Value{}, fmt.Errorf("configs length mismatch: given %d, nonCtxParamCount %d", len(configs), nonCtxParamCount)
 				}
@@ -363,7 +361,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 
 			switch fType.InstantiationType {
 			case InstantiationTypeUnmarshal:
-				rValue, err := fType.InstantiateByUnmarshal(ctx, conf.Value, slots)
+				rValue, err := fType.InstantiateByUnmarshal(ctx, conf)
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -449,12 +447,21 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 	case BasicTypeStruct, BasicTypeArray, BasicTypeMap:
 		switch t.InstantiationType {
 		case InstantiationTypeUnmarshal:
-			if config == nil {
-				return reflect.Value{}, fmt.Errorf("config is nil when instantiate by unmarshal: %v", t.ID)
+			if config != nil {
+				return reflect.Value{}, fmt.Errorf("config is not allowed when instantiate by unmarshal: %v", t.ID)
 			}
-			return t.InstantiateByUnmarshal(ctx, *config, slots)
+			if len(slots) > 0 {
+				return reflect.Value{}, fmt.Errorf("slots are not allowed when instantiate by unmarshal: %v", t.ID)
+			}
+			if len(configs) > 1 {
+				return reflect.Value{}, fmt.Errorf("configs are not allowed when instantiate by unmarshal: %v", t.ID)
+			}
+			return t.InstantiateByUnmarshal(ctx, configs[0])
 		case InstantiationTypeFunction:
-			return t.InstantiateByFunction(ctx, config, configs, slots)
+			if config != nil {
+				return reflect.Value{}, fmt.Errorf("config is not allowed when instantiate by function: %v", t.ID)
+			}
+			return t.InstantiateByFunction(ctx, configs, slots)
 		default:
 			return reflect.Value{}, fmt.Errorf("unsupported instantiation type %v, for basicType: %v, typeID: %s",
 				t.InstantiationType, t.BasicType, t.ID)
@@ -506,9 +513,9 @@ func (t *TypeMeta) InstantiateByLiteral(value string) (reflect.Value, error) {
 			return reflect.ValueOf(int32(i64)), nil
 		case IntegerTypeInt64:
 			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(int64(i64))), nil
+				return reflect.ValueOf(generic.PtrOf(i64)), nil
 			}
-			return reflect.ValueOf(int64(i64)), nil
+			return reflect.ValueOf(i64), nil
 		case IntegerTypeUint8:
 			if i64 < 0 || i64 > math.MaxUint8 {
 				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint8", i64)
