@@ -335,6 +335,10 @@ func instantiateIfNeeded(field reflect.Value) {
 		if field.IsNil() {
 			field.Set(reflect.MakeMap(field.Type()))
 		}
+	} else if field.Kind() == reflect.Slice {
+		if field.IsNil() {
+			field.Set(reflect.MakeSlice(field.Type(), 0, 0))
+		}
 	}
 }
 

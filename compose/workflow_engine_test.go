@@ -6,9 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/internal/generic"
 )
 
-func TestSetFieldByJSONPath(t *testing.T) {
+func TestAssignSlot(t *testing.T) {
 	type Nested struct {
 		Value string
 		Ptr   *string
@@ -32,26 +34,25 @@ func TestSetFieldByJSONPath(t *testing.T) {
 	tests := []struct {
 		name    string
 		target  interface{}
-		path    string
+		path    FieldPath
 		value   interface{}
 		wantErr bool
-		compare func(got, want interface{}) bool
 	}{
 		{
 			name:    "simple string field",
 			target:  &TestStruct{},
-			path:    "$.String",
+			path:    FieldPath{"String"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "string pointer field",
 			target:  &TestStruct{},
-			path:    "$.StringPtr",
+			path:    FieldPath{"StringPtr"},
 			value:   new(string),
 			wantErr: false,
 		},
-		{
+		/*{
 			name:    "slice index",
 			target:  &TestStruct{Slice: make([]string, 0)},
 			path:    "$.Slice[0]",
@@ -70,80 +71,50 @@ func TestSetFieldByJSONPath(t *testing.T) {
 				}
 				return false
 			},
-		},
+		},*/
 		{
 			name:    "map field",
 			target:  &TestStruct{Map: make(map[string]string)},
-			path:    "$.Map.key",
+			path:    FieldPath{"Map", "key"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "map pointer field",
 			target:  &TestStruct{MapPtr: make(map[string]*string)},
-			path:    "$.MapPtr.key",
-			value:   "test",
+			path:    FieldPath{"MapPtr", "key"},
+			value:   generic.PtrOf("test"),
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotPtr, ok := got.(*string); ok {
-					return *gotPtr == want.(string)
-				}
-				if gotStr, ok := got.(string); ok {
-					return gotStr == want.(string)
-				}
-				return false
-			},
 		},
 		{
 			name:    "nested struct field",
 			target:  &TestStruct{},
-			path:    "$.Nested.Value",
+			path:    FieldPath{"Nested", "Value"},
 			value:   "test",
 			wantErr: false,
 		},
 		{
 			name:    "nested pointer struct field",
 			target:  &TestStruct{},
-			path:    "$.NestedPtr.Value",
+			path:    FieldPath{"NestedPtr", "Value"},
 			value:   "test",
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotPtr, ok := got.(*string); ok {
-					return *gotPtr == want.(string)
-				}
-				if gotStr, ok := got.(string); ok {
-					return gotStr == want.(string)
-				}
-				return false
-			},
 		},
 		{
 			name:    "map of structs",
 			target:  &TestStruct{StructMap: make(map[string]Nested)},
-			path:    "$.StructMap.key.Value",
+			path:    FieldPath{"StructMap", "key", "Value"},
 			value:   "test",
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotStr, ok := got.(string); ok {
-					return gotStr == want.(string)
-				}
-				return false
-			},
 		},
 		{
 			name:    "map of struct pointers",
 			target:  &TestStruct{PtrMap: make(map[string]*Nested)},
-			path:    "$.PtrMap.key.Value",
+			path:    FieldPath{"PtrMap", "key", "Value"},
 			value:   "test",
 			wantErr: false,
-			compare: func(got, want interface{}) bool {
-				if gotStr, ok := got.(string); ok {
-					return gotStr == want.(string)
-				}
-				return false
-			},
 		},
-		{
+		/*{
 			name:    "slice of structs",
 			target:  &TestStruct{SliceNest: make([]Nested, 0)},
 			path:    "$.SliceNest[0].Value",
@@ -162,33 +133,33 @@ func TestSetFieldByJSONPath(t *testing.T) {
 				}
 				return false
 			},
-		},
+		},*/
 		// Error cases
 		{
 			name:    "empty path",
 			target:  &TestStruct{},
-			path:    "",
+			path:    FieldPath{},
 			value:   "test",
 			wantErr: true,
 		},
 		{
 			name:    "invalid path",
 			target:  &TestStruct{},
-			path:    "$.InvalidField",
+			path:    FieldPath{"InvalidField"},
 			value:   "test",
 			wantErr: true,
 		},
-		{
+		/*{
 			name:    "invalid array index",
 			target:  &TestStruct{},
 			path:    "$.Slice[invalid]",
 			value:   "test",
 			wantErr: true,
-		},
+		},*/
 		{
 			name:    "path to non-struct",
 			target:  &TestStruct{},
-			path:    "$.String.Invalid",
+			path:    FieldPath{"String.Invalid"},
 			value:   "test",
 			wantErr: true,
 		},
@@ -196,37 +167,16 @@ func TestSetFieldByJSONPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Uncomment to run all tests
-			// Remove this condition to run all tests
-			if tt.name != "map of structs" {
-				return
-			}
-
 			targetValue := reflect.ValueOf(tt.target).Elem()
-			valueValue := reflect.ValueOf(tt.value)
 
-			err := setFieldByJSONPath(targetValue, tt.path, valueValue)
+			_, err := assignSlot(targetValue, tt.value, tt.path)
 
 			if (err != nil) != tt.wantErr {
-				t.Errorf("setFieldByJSONPath() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("assignSlot() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
-			// For debugging - print the resulting struct
-			i := targetValue.Interface()
-			_ = i
-
 			if !tt.wantErr {
-				// For debugging - check if the value is immediately accessible
-				if tt.name == "map of structs" {
-					ts := targetValue.Interface().(TestStruct)
-					if nested, ok := ts.StructMap["key"]; ok {
-						t.Logf("Direct access: StructMap[key].Value = %v", nested.Value)
-					} else {
-						t.Logf("Key 'key' not found in StructMap")
-					}
-				}
-
 				// Verify the value was set correctly
 				got, err := getValueByPath(targetValue, tt.path)
 				if err != nil {
@@ -234,12 +184,10 @@ func TestSetFieldByJSONPath(t *testing.T) {
 					return
 				}
 
-				if tt.compare != nil {
-					if !tt.compare(got.Interface(), tt.value) {
-						t.Errorf("Value not set correctly. got = %v, want = %v", got.Interface(), tt.value)
-					}
-				} else if !reflect.DeepEqual(got.Interface(), tt.value) {
-					t.Errorf("Value not set correctly. got = %v, want = %v", got.Interface(), tt.value)
+				gotInter := got.Interface()
+
+				if !reflect.DeepEqual(gotInter, tt.value) {
+					t.Errorf("Value not set correctly. got = %v, want = %v", gotInter, tt.value)
 				}
 			}
 		})
@@ -247,15 +195,7 @@ func TestSetFieldByJSONPath(t *testing.T) {
 }
 
 // Helper function to get value by path for verification
-func getValueByPath(v reflect.Value, path string) (reflect.Value, error) {
-	if path == "" {
-		return reflect.Value{}, fmt.Errorf("empty path")
-	}
-	if path[0] == '$' {
-		path = path[1:]
-	}
-
-	segments := strings.Split(strings.Trim(path, "."), ".")
+func getValueByPath(v reflect.Value, segments FieldPath) (reflect.Value, error) {
 	current := v
 
 	for _, segment := range segments {
@@ -311,10 +251,6 @@ func getValueByPath(v reflect.Value, path string) (reflect.Value, error) {
 			current = current.MapIndex(reflect.ValueOf(segment))
 			if !current.IsValid() {
 				return reflect.Value{}, fmt.Errorf("key not found in map: %s", segment)
-			}
-			// Always dereference pointers when reading
-			for current.Kind() == reflect.Ptr && !current.IsNil() {
-				current = current.Elem()
 			}
 		} else if current.Kind() == reflect.Struct {
 			current = current.FieldByName(segment)

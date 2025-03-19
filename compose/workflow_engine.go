@@ -368,6 +368,106 @@ func setFieldByJSONPath(target reflect.Value, path string, value reflect.Value) 
 	return nil
 }
 
+func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.Value, error) {
+	if len(toPaths) == 0 {
+		return reflect.Value{}, fmt.Errorf("empty fieldPath")
+	}
+
+	var (
+		originalDestValue = destValue
+		parentMap         reflect.Value
+		parentKey         string
+	)
+
+	for {
+		path := toPaths[0]
+		toPaths = toPaths[1:]
+		if len(toPaths) == 0 {
+			toSet := reflect.ValueOf(taken)
+
+			if destValue.Kind() == reflect.Map {
+				key, err := checkAndExtractToMapKey(path, destValue, toSet)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+
+				destValue.SetMapIndex(key, toSet)
+
+				if parentMap.IsValid() {
+					parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
+				}
+
+				return originalDestValue, nil
+			}
+
+			field, err := checkAndExtractToField(path, destValue, toSet)
+			if err != nil {
+				return reflect.Value{}, err
+			}
+
+			field.Set(toSet)
+
+			if parentMap.IsValid() {
+				parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
+			}
+
+			return originalDestValue, nil
+		}
+
+		if destValue.Kind() == reflect.Map {
+			if !reflect.TypeOf(path).AssignableTo(destValue.Type().Key()) {
+				return reflect.Value{}, fmt.Errorf("field mapping to a map key but output is not a map with string key, type=%v", destValue.Type())
+			}
+
+			keyValue := reflect.ValueOf(path)
+			valueValue := destValue.MapIndex(keyValue)
+			if !valueValue.IsValid() {
+				valueValue = newInstanceByType(destValue.Type().Elem())
+				destValue.SetMapIndex(keyValue, valueValue)
+			}
+
+			if parentMap.IsValid() {
+				parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
+			}
+
+			parentMap = destValue
+			parentKey = path
+			destValue = valueValue
+
+			continue
+		}
+
+		ptrValue := destValue
+		for destValue.Kind() == reflect.Ptr {
+			destValue = destValue.Elem()
+		}
+
+		if destValue.Kind() != reflect.Struct {
+			return reflect.Value{}, fmt.Errorf("field mapping to a struct field but output is not a struct, type=%v", destValue.Type())
+		}
+
+		field := destValue.FieldByName(path)
+		if !field.IsValid() {
+			return reflect.Value{}, fmt.Errorf("field mapping to a struct field, but field not found. field=%v, outputType=%v", path, destValue.Type())
+		}
+
+		if !field.CanSet() {
+			return reflect.Value{}, fmt.Errorf("field mapping to a struct field, but field not exported. field=%v, outputType=%v", path, destValue.Type())
+		}
+
+		instantiateIfNeeded(field)
+
+		if parentMap.IsValid() {
+			parentMap.SetMapIndex(reflect.ValueOf(parentKey), ptrValue)
+		}
+
+		parentMap = reflect.Value{}
+		parentKey = ""
+
+		destValue = field
+	}
+}
+
 func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, value string, slots []Slot) (reflect.Value, error) {
 	rTypePtr := t.ReflectType
 	if rTypePtr == nil {
