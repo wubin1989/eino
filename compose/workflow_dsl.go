@@ -108,6 +108,7 @@ type FunctionMeta struct {
 type ImplMeta struct {
 	TypeID        TypeID               `json:"type_id"`
 	ComponentType components.Component `json:"component_type"`
+	Lambda        *Lambda              `json:"-"`
 }
 
 type InstantiationType string

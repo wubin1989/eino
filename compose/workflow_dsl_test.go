@@ -267,6 +267,45 @@ func TestGraphWithRetriever(t *testing.T) {
 	}, out)
 }
 
+func TestDSLWithLambda(t *testing.T) {
+	dsl := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_lambda"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		Nodes: []*NodeDSL{
+			{
+				Key:    "1",
+				ImplID: "lambda.MessagePtrToList",
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, &schema.Message{Role: schema.User, Content: "hello"})
+	assert.NoError(t, err)
+	assert.Equal(t, []*schema.Message{
+		{
+			Role:    schema.User,
+			Content: "hello",
+		},
+	}, out)
+}
+
 type testRetriever struct{}
 
 type testRetrieverConfig struct {

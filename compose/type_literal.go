@@ -28,6 +28,10 @@ var implMap = map[string]*ImplMeta{
 		TypeID:        "prompt.DefaultChatTemplate",
 		ComponentType: components.ComponentOfPrompt,
 	},
+	"lambda.MessagePtrToList": {
+		ComponentType: ComponentOfLambda,
+		Lambda:        ToList[*schema.Message](),
+	},
 }
 
 var comp2AddFn = map[components.Component]reflect.Value{

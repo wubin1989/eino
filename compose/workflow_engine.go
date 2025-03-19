@@ -99,6 +99,14 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		return g.AddPassthroughNode(dsl.Key, addNodeOpts...)
 	}
 
+	if implMeta.ComponentType == ComponentOfLambda {
+		lambda := implMeta.Lambda
+		if lambda == nil {
+			return fmt.Errorf("lambda not found: %v", dsl.ImplID)
+		}
+		return g.AddLambdaNode(dsl.Key, lambda, addNodeOpts...)
+	}
+
 	typeMeta, ok := typeMap[implMeta.TypeID]
 	if !ok {
 		return fmt.Errorf("type not found: %v", implMeta.TypeID)
