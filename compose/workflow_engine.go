@@ -115,6 +115,13 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		handlerFunc := stateHandler(handler)
 
 		addNodeOpts = append(addNodeOpts, WithStatePreHandler(handlerFunc))
+	} else if dsl.StreamStatePreHandler != nil {
+		handler, ok := stateHandlerMap[*dsl.StreamStatePreHandler]
+		if !ok {
+			return fmt.Errorf("unknown stream state pre handler: %v", *dsl.StreamStatePreHandler)
+		}
+		handlerFunc := streamStateHandler(handler)
+		addNodeOpts = append(addNodeOpts, WithStreamStatePreHandler(handlerFunc))
 	}
 
 	if dsl.StatePostHandler != nil {
@@ -126,6 +133,13 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		handlerFunc := stateHandler(handler)
 
 		addNodeOpts = append(addNodeOpts, WithStatePostHandler(handlerFunc))
+	} else if dsl.StreamStatePostHandler != nil {
+		handler, ok := stateHandlerMap[*dsl.StreamStatePostHandler]
+		if !ok {
+			return fmt.Errorf("unknown stream state post handler: %v", *dsl.StreamStatePostHandler)
+		}
+		handlerFunc := streamStateHandler(handler)
+		addNodeOpts = append(addNodeOpts, WithStreamStatePostHandler(handlerFunc))
 	}
 
 	implMeta, ok := implMap[dsl.ImplID]
@@ -234,12 +248,12 @@ func graphAddBranch(_ context.Context, g *graph, dsl *BranchDSL) error {
 		branch = NewGraphBranch(condition, endNodes)
 	} else {
 		condition := func(ctx context.Context, in *schema.StreamReader[any]) (string, error) {
-			converted := branchFunc.StreamReaderWithConvert.Call([]reflect.Value{reflect.ValueOf(in), branchFunc.ConvertFuncValue})
-			if len(converted) != 1 {
-				return "", fmt.Errorf("branch condition function return value length mismatch: given %d, defined %d", len(converted), 1)
+			converted, err := branchFunc.StreamConverter.convertFromAny(in)
+			if err != nil {
+				return "", err
 			}
 
-			results := branchFunc.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), converted[0]})
+			results := branchFunc.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), converted})
 
 			if results[1].Interface() != nil {
 				return "", results[1].Interface().(error)
@@ -808,5 +822,22 @@ func stateHandler(handler *StateHandler) func(ctx context.Context, in any, state
 		}
 
 		return results[0].Interface(), nil
+	}
+}
+
+func streamStateHandler(handler *StateHandler) func(ctx context.Context, in *schema.StreamReader[any], state any) (*schema.StreamReader[any], error) {
+	return func(ctx context.Context, in *schema.StreamReader[any], state any) (*schema.StreamReader[any], error) {
+		converted, err := handler.StreamConverter.convertFromAny(in)
+		if err != nil {
+			return nil, err
+		}
+
+		results := handler.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), converted, reflect.ValueOf(state)})
+
+		if results[1].Interface() != nil {
+			return nil, results[1].Interface().(error)
+		}
+
+		return handler.StreamConverter.packToAny(results[0]), nil
 	}
 }

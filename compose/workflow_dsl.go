@@ -1,9 +1,11 @@
 package compose
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/schema"
 )
 
 type GraphDSL struct {
@@ -40,7 +42,6 @@ const (
 	BasicTypeArray     BasicType = "array"
 	BasicTypeMap       BasicType = "map"
 	BasicTypeInterface BasicType = "interface"
-	BasicTypeFunction  BasicType = "function"
 )
 
 type IntegerType string
@@ -165,23 +166,21 @@ type BranchDSL struct {
 type BranchFunctionID string
 
 type BranchFunction struct {
-	ID                      BranchFunctionID
-	FuncValue               reflect.Value
-	InputType               reflect.Type
-	IsStream                bool
-	StreamReaderWithConvert reflect.Value
-	ConvertFuncValue        reflect.Value
+	ID              BranchFunctionID
+	FuncValue       reflect.Value
+	InputType       reflect.Type
+	IsStream        bool
+	StreamConverter StreamConverter
 }
 
 type StateHandlerID string
 type StateHandler struct {
-	ID                      StateHandlerID
-	FuncValue               reflect.Value
-	InputType               reflect.Type
-	StateType               reflect.Type
-	IsStream                bool
-	StreamReaderWithConvert reflect.Value
-	ConvertFuncValue        reflect.Value
+	ID              StateHandlerID
+	FuncValue       reflect.Value
+	InputType       reflect.Type
+	StateType       reflect.Type
+	IsStream        bool
+	StreamConverter StreamConverter
 }
 
 type WorkflowNodeDSL struct {
@@ -204,4 +203,27 @@ type WorkflowBranchDSL struct {
 	*BranchDSL
 	Inputs       []*WorkflowNodeInputDSL `json:"inputs,omitempty"`
 	Dependencies []string                `json:"dependencies,omitempty"`
+}
+
+type StreamConverter interface {
+	convertFromAny(in *schema.StreamReader[any]) (reflect.Value, error)
+	packToAny(v reflect.Value) *schema.StreamReader[any]
+}
+
+type StreamConverterImpl[T any] struct{}
+
+func (sh *StreamConverterImpl[T]) convertFromAny(in *schema.StreamReader[any]) (reflect.Value, error) {
+	f := reflect.ValueOf(schema.StreamReaderWithConvert[any, T])
+	c := reflect.ValueOf(anyConvert[T])
+	converted := f.Call([]reflect.Value{reflect.ValueOf(in), c})
+	if len(converted) != 1 {
+		return reflect.Value{}, fmt.Errorf("stream handler convert function return value length mismatch: given %d, defined %d", len(converted), 1)
+	}
+
+	return converted[0], nil
+}
+
+func (sh *StreamConverterImpl[T]) packToAny(v reflect.Value) *schema.StreamReader[any] {
+	f := reflect.ValueOf(packStreamReader[T])
+	return f.Call([]reflect.Value{v})[0].Interface().(streamReader).toAnyStreamReader()
 }

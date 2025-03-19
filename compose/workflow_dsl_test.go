@@ -331,12 +331,11 @@ func TestDSLWithBranch(t *testing.T) {
 	}
 
 	branchFunctionMap["firstChunkStreamToolCallChecker"] = &BranchFunction{
-		ID:                      "firstChunkStreamToolCallChecker",
-		FuncValue:               reflect.ValueOf(f),
-		InputType:               reflect.TypeOf(&schema.Message{}),
-		IsStream:                true,
-		StreamReaderWithConvert: reflect.ValueOf(schema.StreamReaderWithConvert[any, *schema.Message]),
-		ConvertFuncValue:        reflect.ValueOf(anyConvert[*schema.Message]),
+		ID:              "firstChunkStreamToolCallChecker",
+		FuncValue:       reflect.ValueOf(f),
+		InputType:       reflect.TypeOf(&schema.Message{}),
+		IsStream:        true,
+		StreamConverter: &StreamConverterImpl[*schema.Message]{},
 	}
 	defer func() {
 		delete(branchFunctionMap, "firstChunkStreamToolCallChecker")
@@ -450,6 +449,119 @@ func TestDSLWithStateHandlers(t *testing.T) {
 
 	stateHandlerMap["postHandler"] = postHandlerType
 
+	l := func(ctx context.Context, in *schema.Message) ([]*schema.Message, error) {
+		err := ProcessState(ctx, func(_ context.Context, s *state) error {
+			if s.Cnt != 1 {
+				return errors.New("state cnt should be 1")
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return []*schema.Message{in}, nil
+	}
+
+	implMap["lambda.l"] = &ImplMeta{
+		TypeID:        "lambda.l",
+		ComponentType: ComponentOfLambda,
+		Lambda: func() *Lambda {
+			return InvokableLambda(l)
+		},
+	}
+
+	defer func() {
+		delete(typeMap, "state")
+		delete(stateHandlerMap, "preHandler")
+		delete(stateHandlerMap, "postHandler")
+		delete(implMap, "lambda.l")
+	}()
+
+	dsl := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_state_handlers"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		StateType:       (*TypeID)(generic.PtrOf("state")),
+		Nodes: []*NodeDSL{
+			{
+				Key:              "1",
+				ImplID:           "lambda.l",
+				StatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
+				StatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	assert.NoError(t, err)
+	assert.Equal(t, int32(1), globalPre.Load())
+	assert.Equal(t, int32(1), globalPost.Load())
+}
+
+func TestDSLWithStreamStateHandlers(t *testing.T) {
+	type state struct {
+		Cnt int
+	}
+
+	stateType := &TypeMeta{
+		ID:          "state",
+		BasicType:   BasicTypeStruct,
+		IsPtr:       true,
+		ReflectType: generic.PtrOf(reflect.TypeOf(&state{})),
+	}
+
+	typeMap["state"] = stateType
+
+	var globalPre, globalPost atomic.Int32
+	preHandler := func(ctx context.Context, in *schema.StreamReader[*schema.Message], s *state) (*schema.StreamReader[*schema.Message], error) {
+		s.Cnt++
+		globalPre.Add(1)
+		return in, nil
+	}
+
+	postHandler := func(ctx context.Context, in *schema.StreamReader[[]*schema.Message], s *state) (*schema.StreamReader[[]*schema.Message], error) {
+		s.Cnt++
+		globalPost.Add(1)
+		return in, nil
+	}
+
+	preHandlerType := &StateHandler{
+		ID:              "preHandler",
+		FuncValue:       reflect.ValueOf(preHandler),
+		InputType:       reflect.TypeOf((*schema.Message)(nil)),
+		StateType:       reflect.TypeOf((*state)(nil)),
+		IsStream:        true,
+		StreamConverter: &StreamConverterImpl[*schema.Message]{},
+	}
+
+	stateHandlerMap["preHandler"] = preHandlerType
+
+	postHandlerType := &StateHandler{
+		ID:              "postHandler",
+		FuncValue:       reflect.ValueOf(postHandler),
+		InputType:       reflect.TypeOf(([]*schema.Message)(nil)),
+		StateType:       reflect.TypeOf((*state)(nil)),
+		IsStream:        true,
+		StreamConverter: &StreamConverterImpl[[]*schema.Message]{},
+	}
+
+	stateHandlerMap["postHandler"] = postHandlerType
+
 	defer func() {
 		delete(typeMap, "state")
 		delete(stateHandlerMap, "preHandler")
@@ -464,10 +576,10 @@ func TestDSLWithStateHandlers(t *testing.T) {
 		StateType:       (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
 			{
-				Key:              "1",
-				ImplID:           "lambda.MessagePtrToList",
-				StatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
-				StatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
+				Key:                    "1",
+				ImplID:                 "lambda.MessagePtrToList",
+				StreamStatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
+				StreamStatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
 			},
 		},
 		Edges: []*EdgeDSL{
