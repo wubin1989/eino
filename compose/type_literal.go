@@ -30,7 +30,7 @@ var implMap = map[string]*ImplMeta{
 	},
 	"lambda.MessagePtrToList": {
 		ComponentType: ComponentOfLambda,
-		Lambda:        ToList[*schema.Message](),
+		Lambda:        func() *Lambda { return ToList[*schema.Message]() },
 	},
 }
 
@@ -121,3 +121,15 @@ var typeMap = map[TypeID]*TypeMeta{
 		BasicType: BasicTypeInterface,
 	},
 }
+
+var branchFunctionMap = map[BranchFunctionID]*BranchFunction{}
+
+func anyConvert[T any](a any) (T, error) {
+	t, ok := a.(T)
+	if !ok {
+		return t, newUnexpectedInputTypeErr(reflect.TypeOf(t), reflect.TypeOf(a))
+	}
+	return t, nil
+}
+
+var stateHandlerMap = map[StateHandlerID]*StateHandler{}

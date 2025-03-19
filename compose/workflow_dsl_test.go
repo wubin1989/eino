@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 
 	"github.com/bytedance/sonic"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/prompt"
@@ -304,6 +306,190 @@ func TestDSLWithLambda(t *testing.T) {
 			Content: "hello",
 		},
 	}, out)
+}
+
+func TestDSLWithBranch(t *testing.T) {
+	f := func(_ context.Context, sr *schema.StreamReader[*schema.Message]) (string, error) {
+		defer sr.Close()
+
+		for {
+			msg, err := sr.Recv()
+			if err != nil {
+				return "", err
+			}
+
+			if len(msg.ToolCalls) > 0 {
+				return "1", nil
+			}
+
+			if len(msg.Content) == 0 { // skip empty chunks at the front
+				continue
+			}
+
+			return "2", nil
+		}
+	}
+
+	branchFunctionMap["firstChunkStreamToolCallChecker"] = &BranchFunction{
+		ID:                      "firstChunkStreamToolCallChecker",
+		FuncValue:               reflect.ValueOf(f),
+		InputType:               reflect.TypeOf(&schema.Message{}),
+		IsStream:                true,
+		StreamReaderWithConvert: reflect.ValueOf(schema.StreamReaderWithConvert[any, *schema.Message]),
+		ConvertFuncValue:        reflect.ValueOf(anyConvert[*schema.Message]),
+	}
+	defer func() {
+		delete(branchFunctionMap, "firstChunkStreamToolCallChecker")
+	}()
+
+	dsl := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_branch"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		Nodes: []*NodeDSL{
+			{
+				Key:    "1",
+				ImplID: "lambda.MessagePtrToList",
+				Name:   generic.PtrOf("1"),
+			},
+			{
+				Key:    "2",
+				ImplID: "lambda.MessagePtrToList",
+				Name:   generic.PtrOf("2"),
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: "1",
+				To:   END,
+			},
+			{
+				From: "2",
+				To:   END,
+			},
+		},
+		Branches: []*BranchDSL{
+			{
+				Condition: "firstChunkStreamToolCallChecker",
+				FromNodes: []string{START},
+				EndNodes:  []string{"1", "2"},
+			},
+		},
+	}
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msg := schema.AssistantMessage("", []schema.ToolCall{{ID: "1"}})
+	sr, sw := schema.Pipe[any](0)
+	go func() {
+		sw.Send(msg, nil)
+		sw.Close()
+	}()
+	var lambda1Cnt, lambda2Cnt int
+	cbHandler := callbacks.NewHandlerBuilder().OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {
+		if info.Name == "1" {
+			lambda1Cnt++
+		} else if info.Name == "2" {
+			lambda2Cnt++
+		}
+		return ctx
+	}).Build()
+	sr, err = c.run.Transform(context.Background(), sr, WithCallbacks(cbHandler))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, lambda1Cnt)
+	assert.Equal(t, 0, lambda2Cnt)
+	sr.Close()
+}
+
+func TestDSLWithStateHandlers(t *testing.T) {
+	type state struct {
+		Cnt int
+	}
+
+	stateType := &TypeMeta{
+		ID:          "state",
+		BasicType:   BasicTypeStruct,
+		IsPtr:       true,
+		ReflectType: generic.PtrOf(reflect.TypeOf(&state{})),
+	}
+
+	typeMap["state"] = stateType
+
+	var globalPre, globalPost atomic.Int32
+	preHandler := func(ctx context.Context, in *schema.Message, s *state) (*schema.Message, error) {
+		s.Cnt++
+		globalPre.Add(1)
+		return in, nil
+	}
+
+	postHandler := func(ctx context.Context, in []*schema.Message, s *state) ([]*schema.Message, error) {
+		s.Cnt++
+		globalPost.Add(1)
+		return in, nil
+	}
+
+	preHandlerType := &StateHandler{
+		ID:        "preHandler",
+		FuncValue: reflect.ValueOf(preHandler),
+		InputType: reflect.TypeOf((*schema.Message)(nil)),
+		StateType: reflect.TypeOf((*state)(nil)),
+	}
+
+	stateHandlerMap["preHandler"] = preHandlerType
+
+	postHandlerType := &StateHandler{
+		ID:        "postHandler",
+		FuncValue: reflect.ValueOf(postHandler),
+		InputType: reflect.TypeOf(([]*schema.Message)(nil)),
+		StateType: reflect.TypeOf((*state)(nil)),
+	}
+
+	stateHandlerMap["postHandler"] = postHandlerType
+
+	defer func() {
+		delete(typeMap, "state")
+		delete(stateHandlerMap, "preHandler")
+		delete(stateHandlerMap, "postHandler")
+	}()
+
+	dsl := &GraphDSL{
+		ID:              "test",
+		Namespace:       "test",
+		Name:            generic.PtrOf("test_state_handlers"),
+		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		StateType:       (*TypeID)(generic.PtrOf("state")),
+		Nodes: []*NodeDSL{
+			{
+				Key:              "1",
+				ImplID:           "lambda.MessagePtrToList",
+				StatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
+				StatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
+			},
+		},
+		Edges: []*EdgeDSL{
+			{
+				From: START,
+				To:   "1",
+			},
+			{
+				From: "1",
+				To:   END,
+			},
+		},
+	}
+	ctx := context.Background()
+	c, err := CompileGraph(ctx, dsl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	assert.NoError(t, err)
+	assert.Equal(t, int32(1), globalPre.Load())
+	assert.Equal(t, int32(1), globalPost.Load())
 }
 
 type testRetriever struct{}

@@ -327,7 +327,8 @@ func (g *graph) addNode(key string, node *graphNode, options *graphAddNodeOpts) 
 			// check input type
 			if node.inputType() == nil && options.processor.statePreHandler.outputType != reflect.TypeOf((*any)(nil)).Elem() {
 				return fmt.Errorf("passthrough node[%s]'s pre handler type isn't any", key)
-			} else if node.inputType() != nil && node.inputType() != options.processor.statePreHandler.outputType {
+			} else if node.inputType() != nil && node.inputType() != options.processor.statePreHandler.outputType &&
+				options.processor.statePreHandler.outputType != reflect.TypeOf((*any)(nil)).Elem() {
 				return fmt.Errorf("node[%s]'s pre handler type[%v] is different from its input type[%v]", key, options.processor.statePreHandler.outputType, node.inputType())
 			}
 		}
@@ -339,7 +340,8 @@ func (g *graph) addNode(key string, node *graphNode, options *graphAddNodeOpts) 
 			// check input type
 			if node.outputType() == nil && options.processor.statePostHandler.inputType != reflect.TypeOf((*any)(nil)).Elem() {
 				return fmt.Errorf("passthrough node[%s]'s post handler type isn't any", key)
-			} else if node.outputType() != nil && node.outputType() != options.processor.statePostHandler.inputType {
+			} else if node.outputType() != nil && node.outputType() != options.processor.statePostHandler.inputType &&
+				options.processor.statePostHandler.inputType != reflect.TypeOf((*any)(nil)).Elem() {
 				return fmt.Errorf("node[%s]'s post handler type[%v] is different from its output type[%v]", key, options.processor.statePostHandler.inputType, node.outputType())
 			}
 		}

@@ -10,7 +10,7 @@ type GraphDSL struct {
 	ID              string           `json:"id"`
 	Namespace       string           `json:"namespace"`
 	Name            *string          `json:"name,omitempty"`
-	StateType       *TypeMeta        `json:"state_type,omitempty"`
+	StateType       *TypeID          `json:"state_type,omitempty"`
 	NodeTriggerMode *NodeTriggerMode `json:"node_trigger_mode,omitempty"`
 	MaxRunStep      *int             `json:"max_run_step,omitempty"`
 	Nodes           []*NodeDSL       `json:"nodes,omitempty"`
@@ -22,7 +22,7 @@ type WorkflowDSL struct {
 	ID              string                  `json:"id"`
 	Namespace       string                  `json:"namespace"`
 	Name            string                  `json:"name"`
-	StateType       *TypeMeta               `json:"state_type,omitempty"`
+	StateType       *TypeID                 `json:"state_type,omitempty"`
 	Nodes           []*WorkflowNodeDSL      `json:"nodes,omitempty"`
 	Branches        []*WorkflowBranchDSL    `json:"branches,omitempty"`
 	EndInputs       []*WorkflowNodeInputDSL `json:"end_inputs,omitempty"`
@@ -108,7 +108,7 @@ type FunctionMeta struct {
 type ImplMeta struct {
 	TypeID        TypeID               `json:"type_id"`
 	ComponentType components.Component `json:"component_type"`
-	Lambda        *Lambda              `json:"-"`
+	Lambda        func() *Lambda       `json:"-"`
 }
 
 type InstantiationType string
@@ -120,19 +120,19 @@ const (
 )
 
 type NodeDSL struct {
-	Key                    string        `json:"key"`
-	ImplID                 string        `json:"impl_id"`
-	Name                   *string       `json:"name,omitempty"`
-	Config                 *string       `json:"config,omitempty"`  // use when there is only one input parameter other than ctx
-	Configs                []Config      `json:"configs,omitempty"` // use when there are multiple input parameters other than ctx
-	Slots                  []Slot        `json:"slots,omitempty"`
-	InputKey               *string       `json:"input_key,omitempty"`
-	OutputKey              *string       `json:"output_key,omitempty"`
-	GraphDSL               *GraphDSL     `json:"graph_dsl,omitempty"`
-	StatePreHandler        *FunctionMeta `json:"state_pre_handler,omitempty"`
-	StatePostHandler       *FunctionMeta `json:"state_post_handler,omitempty"`
-	StreamStatePreHandler  *FunctionMeta `json:"stream_state_pre_handler,omitempty"`
-	StreamStatePostHandler *FunctionMeta `json:"stream_state_post_handler,omitempty"`
+	Key                    string          `json:"key"`
+	ImplID                 string          `json:"impl_id"`
+	Name                   *string         `json:"name,omitempty"`
+	Config                 *string         `json:"config,omitempty"`  // use when there is only one input parameter other than ctx
+	Configs                []Config        `json:"configs,omitempty"` // use when there are multiple input parameters other than ctx
+	Slots                  []Slot          `json:"slots,omitempty"`
+	InputKey               *string         `json:"input_key,omitempty"`
+	OutputKey              *string         `json:"output_key,omitempty"`
+	GraphDSL               *GraphDSL       `json:"graph_dsl,omitempty"`
+	StatePreHandler        *StateHandlerID `json:"state_pre_handler,omitempty"`
+	StatePostHandler       *StateHandlerID `json:"state_post_handler,omitempty"`
+	StreamStatePreHandler  *StateHandlerID `json:"stream_state_pre_handler,omitempty"`
+	StreamStatePostHandler *StateHandlerID `json:"stream_state_post_handler,omitempty"`
 }
 
 type Config struct {
@@ -157,9 +157,31 @@ type EdgeDSL struct {
 }
 
 type BranchDSL struct {
-	FromNodes string   `json:"from_nodes"`
-	EndNodes  string   `json:"end_nodes"`
-	Condition TypeMeta `json:"condition"`
+	Condition BranchFunctionID
+	FromNodes []string
+	EndNodes  []string
+}
+
+type BranchFunctionID string
+
+type BranchFunction struct {
+	ID                      BranchFunctionID
+	FuncValue               reflect.Value
+	InputType               reflect.Type
+	IsStream                bool
+	StreamReaderWithConvert reflect.Value
+	ConvertFuncValue        reflect.Value
+}
+
+type StateHandlerID string
+type StateHandler struct {
+	ID                      StateHandlerID
+	FuncValue               reflect.Value
+	InputType               reflect.Type
+	StateType               reflect.Type
+	IsStream                bool
+	StreamReaderWithConvert reflect.Value
+	ConvertFuncValue        reflect.Value
 }
 
 type WorkflowNodeDSL struct {

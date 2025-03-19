@@ -11,6 +11,7 @@ import (
 	"github.com/bytedance/sonic"
 
 	"github.com/cloudwego/eino/internal/generic"
+	"github.com/cloudwego/eino/schema"
 )
 
 type CompiledGraph struct {
@@ -35,15 +36,25 @@ func InvokeCompiledGraph[In, Out any](ctx context.Context, g *CompiledGraph, inp
 
 func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
 	newGraphOptions := make([]NewGraphOption, 0)
-	/*if dsl.StateType != nil {
+	if dsl.StateType != nil {
+		stateType, ok := typeMap[*dsl.StateType]
+		if !ok {
+			return nil, fmt.Errorf("unknown state type: %v", *dsl.StateType)
+		}
+
+		if stateType.ReflectType == nil {
+			return nil, fmt.Errorf("state type not found: %v", stateType.ID)
+		}
+
 		stateFn := func(ctx context.Context) any {
-			return newInstanceByType(dsl.StateType.ReflectType)
+			return newInstanceByType(*stateType.ReflectType).Interface()
 		}
 		newGraphOptions = append(newGraphOptions, WithGenLocalState(stateFn))
-	}*/
+	}
 
 	g := NewGraph[any, any](newGraphOptions...)
-	for _, node := range dsl.Nodes {
+	for i := range dsl.Nodes {
+		node := dsl.Nodes[i]
 		if err := graphAddNode(ctx, g.graph, node); err != nil {
 			return nil, err
 		}
@@ -51,6 +62,13 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
 
 	for _, edge := range dsl.Edges {
 		if err := g.AddEdge(edge.From, edge.To); err != nil {
+			return nil, err
+		}
+	}
+
+	for i := range dsl.Branches {
+		branch := dsl.Branches[i]
+		if err := graphAddBranch(ctx, g.graph, branch); err != nil {
 			return nil, err
 		}
 	}
@@ -88,7 +106,27 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		addNodeOpts = append(addNodeOpts, WithOutputKey(*dsl.OutputKey))
 	}
 
-	// TODO: state handlers
+	if dsl.StatePreHandler != nil {
+		handler, ok := stateHandlerMap[*dsl.StatePreHandler]
+		if !ok {
+			return fmt.Errorf("unknown state pre handler: %v", *dsl.StatePreHandler)
+		}
+
+		handlerFunc := stateHandler(handler)
+
+		addNodeOpts = append(addNodeOpts, WithStatePreHandler(handlerFunc))
+	}
+
+	if dsl.StatePostHandler != nil {
+		handler, ok := stateHandlerMap[*dsl.StatePostHandler]
+		if !ok {
+			return fmt.Errorf("unknown state post handler: %v", *dsl.StatePostHandler)
+		}
+
+		handlerFunc := stateHandler(handler)
+
+		addNodeOpts = append(addNodeOpts, WithStatePostHandler(handlerFunc))
+	}
 
 	implMeta, ok := implMap[dsl.ImplID]
 	if !ok {
@@ -104,7 +142,9 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 		if lambda == nil {
 			return fmt.Errorf("lambda not found: %v", dsl.ImplID)
 		}
-		return g.AddLambdaNode(dsl.Key, lambda, addNodeOpts...)
+		opts := getGraphAddNodeOpts(addNodeOpts...)
+		_ = opts
+		return g.AddLambdaNode(dsl.Key, lambda(), addNodeOpts...)
 	}
 
 	typeMeta, ok := typeMap[implMeta.TypeID]
@@ -148,6 +188,69 @@ func graphAddNode(ctx context.Context, g *graph, dsl *NodeDSL) error {
 	}
 
 	return nil
+}
+
+func graphAddBranch(_ context.Context, g *graph, dsl *BranchDSL) error {
+	// can only have one fromNodes for graph
+	if len(dsl.FromNodes) != 1 {
+		return fmt.Errorf("graph branch can only have one from node, actual= %v", dsl.FromNodes)
+	}
+
+	if len(dsl.EndNodes) <= 1 {
+		return fmt.Errorf("graph branch must have more than one end nodes, actual= %v", dsl.EndNodes)
+	}
+
+	endNodes := make(map[string]bool, len(dsl.EndNodes))
+	for _, node := range dsl.EndNodes {
+		endNodes[node] = true
+	}
+
+	branchFunc, ok := branchFunctionMap[dsl.Condition]
+	if !ok {
+		return fmt.Errorf("branch function not found: %v", dsl.Condition)
+	}
+
+	// convert condition to GraphBranchCondition[any] or GraphStreamBranchCondition[any]
+	// create the *GraphBranch
+	var branch *GraphBranch
+
+	if !branchFunc.IsStream {
+		condition := func(ctx context.Context, in any) (string, error) {
+			if !reflect.TypeOf(in).AssignableTo(branchFunc.InputType) {
+				return "", fmt.Errorf("branch condition expects input type of %v, actual= %v", branchFunc.InputType, reflect.TypeOf(in))
+			}
+
+			results := branchFunc.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(in)})
+			if len(results) != 2 {
+				return "", fmt.Errorf("branch condition function return value length mismatch: given %d, defined %d", len(results), 2)
+			}
+
+			if results[1].Interface() != nil {
+				return "", results[1].Interface().(error)
+			}
+
+			return results[0].Interface().(string), nil
+		}
+		branch = NewGraphBranch(condition, endNodes)
+	} else {
+		condition := func(ctx context.Context, in *schema.StreamReader[any]) (string, error) {
+			converted := branchFunc.StreamReaderWithConvert.Call([]reflect.Value{reflect.ValueOf(in), branchFunc.ConvertFuncValue})
+			if len(converted) != 1 {
+				return "", fmt.Errorf("branch condition function return value length mismatch: given %d, defined %d", len(converted), 1)
+			}
+
+			results := branchFunc.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), converted[0]})
+
+			if results[1].Interface() != nil {
+				return "", results[1].Interface().(error)
+			}
+
+			return results[0].Interface().(string), nil
+		}
+		branch = NewStreamGraphBranch(condition, endNodes)
+	}
+
+	return g.AddBranch(dsl.FromNodes[0], branch)
 }
 
 func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.Value, error) {
@@ -608,7 +711,7 @@ func (t *TypeMeta) InstantiateByLiteral(value string) (reflect.Value, error) {
 		}
 		switch *t.FloatType {
 		case FloatTypeFloat32:
-			if f64 < float64(math.SmallestNonzeroFloat32) || f64 > float64(math.MaxFloat32) {
+			if f64 < math.SmallestNonzeroFloat32 || f64 > math.MaxFloat32 {
 				return reflect.Value{}, fmt.Errorf("overflow: value %f is out of range for float32", f64)
 			}
 			if t.IsPtr {
@@ -617,9 +720,9 @@ func (t *TypeMeta) InstantiateByLiteral(value string) (reflect.Value, error) {
 			return reflect.ValueOf(float32(f64)), nil
 		case FloatTypeFloat64:
 			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(float64(f64))), nil
+				return reflect.ValueOf(generic.PtrOf(f64)), nil
 			}
-			return reflect.ValueOf(float64(f64)), nil
+			return reflect.ValueOf(f64), nil
 		default:
 			panic(fmt.Sprintf("unsupported float type: %v", *t.FloatType))
 		}
@@ -683,4 +786,27 @@ func extractSliceIndexFromPath(path string) (int, error) {
 	}
 
 	return index, nil
+}
+
+func stateHandler(handler *StateHandler) func(ctx context.Context, in any, state any) (any, error) {
+	return func(ctx context.Context, in any, state any) (any, error) {
+		if !reflect.TypeOf(in).AssignableTo(handler.InputType) {
+			return "", fmt.Errorf("state handler expects input type of %v, actual= %v", handler.InputType, reflect.TypeOf(in))
+		}
+
+		if !reflect.TypeOf(state).AssignableTo(handler.StateType) {
+			return "", fmt.Errorf("state handler expects state type of %v, actual= %v", handler.StateType, reflect.TypeOf(state))
+		}
+
+		results := handler.FuncValue.Call([]reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(in), reflect.ValueOf(state)})
+		if len(results) != 2 {
+			return "", fmt.Errorf("state handler return value length mismatch: given %d, defined %d", len(results), 2)
+		}
+
+		if results[1].Interface() != nil {
+			return "", results[1].Interface().(error)
+		}
+
+		return results[0].Interface(), nil
+	}
 }
