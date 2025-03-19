@@ -142,18 +142,7 @@ type Config struct {
 type Slot struct {
 	TypeID TypeID `json:"type_id"` // the actual type ID of the slot instance. BasicType should not be interface
 
-	// the JSONPath of the slot within factory function's input parameters.
-	// e.g.
-	//
-	//  // for Retriever implementations' Embedding
-	//  path = "$.Embedding"
-	//
-	//  // for ToolsNode's []BaseTool
-	//  path = "$.Tools[0]"
-	//
-	//  // for DefaultChatTemplate's []MessageTemplate
-	//  path = "$[1][0]"
-	Path string `json:"path"`
+	Path FieldPath `json:"path"`
 
 	Config  *string  `json:"config,omitempty"`
 	Configs []Config `json:"configs,omitempty"`

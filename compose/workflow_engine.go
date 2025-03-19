@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/bytedance/sonic"
 
 	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/internal/generic"
 )
 
 type CompiledGraph struct {
@@ -34,12 +36,12 @@ func InvokeCompiledGraph[In, Out any](ctx context.Context, g *CompiledGraph, inp
 
 func CompileGraph(ctx context.Context, dsl *GraphDSL) (*CompiledGraph, error) {
 	newGraphOptions := make([]NewGraphOption, 0)
-	if dsl.StateType != nil {
+	/*if dsl.StateType != nil {
 		stateFn := func(ctx context.Context) any {
-			return dsl.StateType.InstantiateByLiteral()
+			return newInstanceByType(dsl.StateType.ReflectType)
 		}
 		newGraphOptions = append(newGraphOptions, WithGenLocalState(stateFn))
-	}
+	}*/
 
 	g := NewGraph[any, any](newGraphOptions...)
 	for _, node := range dsl.Nodes {
@@ -370,9 +372,46 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 				}
 
 				inputs[conf.Index] = rValue
+			case InstantiationTypeLiteral:
+				rValue, err := fType.InstantiateByLiteral(conf.Value)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+				if _, ok := inputs[conf.Index]; ok {
+					return reflect.Value{}, fmt.Errorf("duplicate config index: %d", conf.Index)
+				}
+				inputs[conf.Index] = rValue
 			default:
 				return reflect.Value{}, fmt.Errorf("unsupported instantiation type for function parameter: %v", fType.InstantiationType)
 			}
+		}
+
+		for _, slot := range slots {
+			slotType, ok := typeMap[slot.TypeID]
+			if !ok {
+				return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
+			}
+
+			slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
+			if err != nil {
+				return reflect.Value{}, err
+			}
+
+			if len(slot.Path) == 0 {
+				return reflect.Value{}, fmt.Errorf("empty slot path")
+			}
+
+			index, err := extractSliceIndexFromPath(slot.Path[0])
+			if err != nil {
+				return reflect.Value{}, err
+			}
+
+			_, ok = inputs[index]
+			if ok {
+				return reflect.Value{}, fmt.Errorf("duplicate slot index: %d", index)
+			}
+
+			inputs[index] = slotInstance
 		}
 
 		inputValues := make([]reflect.Value, len(inputs))
@@ -403,7 +442,10 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, config *string, co
 func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config, slots []Slot) (reflect.Value, error) {
 	switch t.BasicType {
 	case BasicTypeInteger, BasicTypeString, BasicTypeBool, BasicTypeNumber:
-		return reflect.ValueOf(t.InstantiateByLiteral()), nil
+		if config == nil {
+			return reflect.Value{}, fmt.Errorf("config is nil when instantiate by literal: %v", t.ID)
+		}
+		return t.InstantiateByLiteral(*config)
 	case BasicTypeStruct, BasicTypeArray, BasicTypeMap:
 		switch t.InstantiationType {
 		case InstantiationTypeUnmarshal:
@@ -422,97 +464,159 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 	}
 }
 
-func (t *TypeMeta) InstantiateByLiteral() any {
+func (t *TypeMeta) InstantiateByLiteral(value string) (reflect.Value, error) {
 	switch t.BasicType {
 	case BasicTypeString:
 		if t.IsPtr {
-			return new(string)
+			return reflect.ValueOf(generic.PtrOf(value)), nil
 		}
-		return ""
+		return reflect.ValueOf(value), nil
 	case BasicTypeInteger:
 		if t.IntegerType == nil {
 			panic(fmt.Sprintf("basic type is %v, integer type is nil", t.BasicType))
 		}
+		i64, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return reflect.Value{}, err
+		}
 		switch *t.IntegerType {
 		case IntegerTypeInt8:
-			if t.IsPtr {
-				return new(int8)
+			if i64 < math.MinInt8 || i64 > math.MaxInt8 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int8", i64)
 			}
-			return int8(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(int8(i64))), nil
+			}
+			return reflect.ValueOf(int8(i64)), nil
 		case IntegerTypeInt16:
-			if t.IsPtr {
-				return new(int16)
+			if i64 < math.MinInt16 || i64 > math.MaxInt16 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int16", i64)
 			}
-			return int16(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(int16(i64))), nil
+			}
+			return reflect.ValueOf(int16(i64)), nil
 		case IntegerTypeInt32:
-			if t.IsPtr {
-				return new(int32)
+			if i64 < math.MinInt32 || i64 > math.MaxInt32 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int32", i64)
 			}
-			return int32(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(int32(i64))), nil
+			}
+			return reflect.ValueOf(int32(i64)), nil
 		case IntegerTypeInt64:
 			if t.IsPtr {
-				return new(int64)
+				return reflect.ValueOf(generic.PtrOf(int64(i64))), nil
 			}
-			return int64(0)
+			return reflect.ValueOf(int64(i64)), nil
 		case IntegerTypeUint8:
-			if t.IsPtr {
-				return new(uint8)
+			if i64 < 0 || i64 > math.MaxUint8 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint8", i64)
 			}
-			return uint8(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(uint8(i64))), nil
+			}
+			return reflect.ValueOf(uint8(i64)), nil
 		case IntegerTypeUint16:
-			if t.IsPtr {
-				return new(uint16)
+			if i64 < 0 || i64 > math.MaxUint16 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint16", i64)
 			}
-			return uint16(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(uint16(i64))), nil
+			}
+			return reflect.ValueOf(uint16(i64)), nil
 		case IntegerTypeUint32:
-			if t.IsPtr {
-				return new(uint32)
+			if i64 < 0 || i64 > math.MaxUint32 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint32", i64)
 			}
-			return uint32(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(uint32(i64))), nil
+			}
+			return reflect.ValueOf(uint32(i64)), nil
 		case IntegerTypeUint64:
-			if t.IsPtr {
-				return new(uint64)
+			if i64 < 0 {
+				return reflect.Value{}, fmt.Errorf("overflow: value %d is negative and cannot be represented as uint64", i64)
 			}
-			return uint64(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(uint64(i64))), nil
+			}
+			return reflect.ValueOf(uint64(i64)), nil
 		case IntegerTypeInt:
-			if t.IsPtr {
-				return new(int)
+			if strconv.IntSize == 32 {
+				if i64 < math.MinInt32 || i64 > math.MaxInt32 {
+					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int (32-bit system)", i64)
+				}
+				if t.IsPtr {
+					return reflect.ValueOf(generic.PtrOf(int(i64))), nil
+				}
+				return reflect.ValueOf(int(i64)), nil
+			} else {
+				if i64 < math.MinInt64 || i64 > math.MaxInt64 {
+					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int (64-bit system)", i64)
+				}
+				if t.IsPtr {
+					return reflect.ValueOf(generic.PtrOf(int(i64))), nil
+				}
+				return reflect.ValueOf(int(i64)), nil
 			}
-			return 0
 		case IntegerTypeUInt:
-			if t.IsPtr {
-				return new(uint)
+			if strconv.IntSize == 32 {
+				if i64 < 0 || i64 > math.MaxUint32 {
+					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint (32-bit system)", i64)
+				}
+				if t.IsPtr {
+					return reflect.ValueOf(generic.PtrOf(uint(i64))), nil
+				}
+				return reflect.ValueOf(uint(i64)), nil
+			} else {
+				if i64 < 0 {
+					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint (64-bit system)", i64)
+				}
+				if t.IsPtr {
+					return reflect.ValueOf(generic.PtrOf(uint(i64))), nil
+				}
+				return reflect.ValueOf(uint(i64)), nil
 			}
-			return uint(0)
 		default:
 			panic(fmt.Sprintf("unsupported integer type: %v", *t.IntegerType))
 		}
 	case BasicTypeNumber:
 		if t.FloatType == nil {
 			if t.IsPtr {
-				return new(float64)
+				return reflect.ValueOf(generic.PtrOf(float64(0))), nil
 			}
-			return float64(0)
+			return reflect.ValueOf(float64(0)), nil
+		}
+		f64, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return reflect.Value{}, err
 		}
 		switch *t.FloatType {
 		case FloatTypeFloat32:
-			if t.IsPtr {
-				return new(float32)
+			if f64 < float64(math.SmallestNonzeroFloat32) || f64 > float64(math.MaxFloat32) {
+				return reflect.Value{}, fmt.Errorf("overflow: value %f is out of range for float32", f64)
 			}
-			return float32(0)
+			if t.IsPtr {
+				return reflect.ValueOf(generic.PtrOf(float32(f64))), nil
+			}
+			return reflect.ValueOf(float32(f64)), nil
 		case FloatTypeFloat64:
 			if t.IsPtr {
-				return new(float64)
+				return reflect.ValueOf(generic.PtrOf(float64(f64))), nil
 			}
-			return float64(0)
+			return reflect.ValueOf(float64(f64)), nil
 		default:
 			panic(fmt.Sprintf("unsupported float type: %v", *t.FloatType))
 		}
 	case BasicTypeBool:
-		if t.IsPtr {
-			return new(bool)
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return reflect.Value{}, err
 		}
-		return false
+		if t.IsPtr {
+			return reflect.ValueOf(generic.PtrOf(b)), nil
+		}
+		return reflect.ValueOf(b), nil
 	default:
 		panic(fmt.Sprintf("unsupported basic type: %s", t.BasicType))
 	}
@@ -520,23 +624,9 @@ func (t *TypeMeta) InstantiateByLiteral() any {
 
 // checkAndExtractToSliceIndex extracts and validates the slice index from the path
 func checkAndExtractToSliceIndex(path string, destValue reflect.Value) (reflect.Value, error) {
-	// Extract the index part in the form of "[1]"
-	startIndex := strings.Index(path, "[")
-	endIndex := strings.Index(path, "]")
-	if startIndex == -1 || endIndex == -1 || endIndex <= startIndex+1 {
-		return reflect.Value{}, fmt.Errorf("invalid slice index syntax in path: %s", path)
-	}
-	indexStr := path[startIndex+1 : endIndex]
-
-	// Parse the index from the extracted string
-	index, err := strconv.Atoi(indexStr)
+	index, err := extractSliceIndexFromPath(path)
 	if err != nil {
-		return reflect.Value{}, fmt.Errorf("invalid slice index in path: %s", path)
-	}
-
-	// Check if the index is within the bounds of the slice
-	if index < 0 {
-		return reflect.Value{}, fmt.Errorf("slice index out of bounds: %d", index)
+		return reflect.Value{}, err
 	}
 
 	if index >= destValue.Len() {
@@ -555,4 +645,27 @@ func checkAndExtractToSliceIndex(path string, destValue reflect.Value) (reflect.
 	}
 
 	return destValue.Index(index), nil
+}
+
+func extractSliceIndexFromPath(path string) (int, error) {
+	// Extract the index part in the form of "[1]"
+	startIndex := strings.Index(path, "[")
+	endIndex := strings.Index(path, "]")
+	if startIndex == -1 || endIndex == -1 || endIndex <= startIndex+1 {
+		return -1, fmt.Errorf("invalid slice index syntax in path: %s", path)
+	}
+	indexStr := path[startIndex+1 : endIndex]
+
+	// Parse the index from the extracted string
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		return -1, fmt.Errorf("invalid slice index in path: %s", path)
+	}
+
+	// Check if the index is within the bounds of the slice
+	if index < 0 {
+		return index, fmt.Errorf("slice index out of bounds: %d", index)
+	}
+
+	return index, nil
 }

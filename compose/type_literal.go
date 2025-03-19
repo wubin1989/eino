@@ -22,12 +22,6 @@ var errType = &TypeMeta{
 	ID: "Error",
 }
 
-var formatType = &TypeMeta{
-	ID:          "schema.Format",
-	BasicType:   BasicTypeInteger,
-	IntegerType: generic.PtrOf(IntegerTypeUint8),
-}
-
 var implMap = map[string]*ImplMeta{
 	"Passthrough": passthrough,
 	"prompt.DefaultChatTemplate": {

@@ -130,7 +130,8 @@ func TestGraphWithChatTemplate(t *testing.T) {
 				},
 				Slots: []Slot{
 					{
-						TypeID: "schema.messagePlaceHolder",
+						TypeID: "schema.messagePlaceholder",
+						Path:   FieldPath{"[1]"},
 						Configs: []Config{
 							{
 								Index: 0,
@@ -144,12 +145,12 @@ func TestGraphWithChatTemplate(t *testing.T) {
 					},
 					{
 						TypeID: "*schema.Message",
-						Path:   "$[1]",
+						Path:   FieldPath{"[2]"},
 						Config: generic.PtrOf(`{"role":"system", "content":"you are a {certain} assistant"}`),
 					},
 					{
 						TypeID: "*schema.Message",
-						Path:   "$[2]",
+						Path:   FieldPath{"[3]"},
 						Config: generic.PtrOf(`{"role":"user", "content":"hello, {world}"}`),
 					},
 				},
