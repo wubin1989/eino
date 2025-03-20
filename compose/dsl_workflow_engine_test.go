@@ -110,13 +110,12 @@ func TestWorkflowFromDSL(t *testing.T) {
 
 	dsl := &WorkflowDSL{
 		ID:         "test",
-		Namespace:  "test",
 		Name:       generic.PtrOf("test_workflow"),
 		InputType:  "map[string]any",
 		OutputType: "map[string]any",
 		Nodes: []*WorkflowNodeDSL{
 			{
-				NodeDSL: &NodeDSL{
+				NodeDSL: NodeDSL{
 					Key:    "lambda1",
 					ImplID: "lambda1",
 				},
@@ -127,7 +126,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 				},
 			},
 			{
-				NodeDSL: &NodeDSL{
+				NodeDSL: NodeDSL{
 					Key:    "lambda2",
 					ImplID: "lambda2",
 				},
@@ -138,7 +137,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 				},
 			},
 			{
-				NodeDSL: &NodeDSL{
+				NodeDSL: NodeDSL{
 					Key:    "lambda3",
 					ImplID: "lambda3",
 				},
@@ -163,7 +162,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 				},
 			},
 			{
-				NodeDSL: &NodeDSL{
+				NodeDSL: NodeDSL{
 					Key:      "sub_workflow",
 					Workflow: subDSL,
 				},
@@ -181,7 +180,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 				},
 			},
 			{
-				NodeDSL: &NodeDSL{
+				NodeDSL: NodeDSL{
 					Key:    "lambda5",
 					ImplID: "lambda5",
 				},

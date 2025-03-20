@@ -27,7 +27,6 @@ import (
 func TestGraphWithPassthrough(t *testing.T) {
 	dsl := &GraphDSL{
 		ID:        "test",
-		Namespace: "test",
 		Name:      generic.PtrOf("test_passthrough"),
 		InputType: "map[string]any",
 		Nodes: []*NodeDSL{
@@ -49,6 +48,10 @@ func TestGraphWithPassthrough(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	_ = content
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
@@ -126,7 +129,6 @@ func TestInstantiation(t *testing.T) {
 func TestGraphWithChatTemplate(t *testing.T) {
 	dsl := &GraphDSL{
 		ID:              "test",
-		Namespace:       "test",
 		Name:            generic.PtrOf("test_chat_template"),
 		InputType:       "map[string]any",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
@@ -281,11 +283,9 @@ func TestGraphWithRetriever(t *testing.T) {
 
 func TestDSLWithLambda(t *testing.T) {
 	dsl := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_lambda"),
-		InputType:       "*schema.Message",
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		ID:        "test",
+		Name:      generic.PtrOf("test_lambda"),
+		InputType: "*schema.Message",
 		Nodes: []*NodeDSL{
 			{
 				Key:    "1",
@@ -303,6 +303,10 @@ func TestDSLWithLambda(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
@@ -353,11 +357,9 @@ func TestDSLWithBranch(t *testing.T) {
 	}()
 
 	dsl := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_branch"),
-		InputType:       "*schema.Message",
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		ID:        "test",
+		Name:      generic.PtrOf("test_branch"),
+		InputType: "*schema.Message",
 		Nodes: []*NodeDSL{
 			{
 				Key:    "1",
@@ -390,6 +392,11 @@ func TestDSLWithBranch(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
+
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
@@ -486,12 +493,10 @@ func TestDSLWithStateHandlers(t *testing.T) {
 	}()
 
 	dsl := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_state_handlers"),
-		InputType:       "*schema.Message",
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
-		StateType:       (*TypeID)(generic.PtrOf("state")),
+		ID:        "test",
+		Name:      generic.PtrOf("test_state_handlers"),
+		InputType: "*schema.Message",
+		StateType: (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
 			{
 				Key:              "1",
@@ -511,6 +516,11 @@ func TestDSLWithStateHandlers(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
+
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
@@ -578,12 +588,10 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 	}()
 
 	dsl := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_state_handlers"),
-		InputType:       "*schema.Message",
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
-		StateType:       (*TypeID)(generic.PtrOf("state")),
+		ID:        "test",
+		Name:      generic.PtrOf("test_state_handlers"),
+		InputType: "*schema.Message",
+		StateType: (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
 			{
 				Key:              "1",
@@ -603,6 +611,11 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
+
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
@@ -616,10 +629,8 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 
 func TestDSLWithSubGraph(t *testing.T) {
 	subGraphDSL := &GraphDSL{
-		ID:              "test_sub",
-		Namespace:       "test_sub",
-		Name:            generic.PtrOf("test_sub_graph"),
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		ID:   "test_sub",
+		Name: generic.PtrOf("test_sub_graph"),
 		Nodes: []*NodeDSL{
 			{
 				Key:    "1",
@@ -639,11 +650,9 @@ func TestDSLWithSubGraph(t *testing.T) {
 	}
 
 	parentGraphDSL := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_parent_graph"),
-		InputType:       "*schema.Message",
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		ID:        "test",
+		Name:      generic.PtrOf("test_parent_graph"),
+		InputType: "*schema.Message",
 		Nodes: []*NodeDSL{
 			{
 				Key:   "1",
@@ -821,7 +830,6 @@ func TestDSLWithToolsNode(t *testing.T) {
 
 	dsl := &GraphDSL{
 		ID:        "test",
-		Namespace: "test",
 		Name:      generic.PtrOf("test_tools_node"),
 		InputType: "*schema.Message",
 		Nodes: []*NodeDSL{
@@ -856,6 +864,10 @@ func TestDSLWithToolsNode(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)

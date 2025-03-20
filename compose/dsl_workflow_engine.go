@@ -86,7 +86,7 @@ func CompileWorkflow(ctx context.Context, dsl *WorkflowDSL) (*DSLRunner, error) 
 }
 
 func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *WorkflowNodeDSL) error {
-	addNodeOpts, err := genAddNodeOptions(node.NodeDSL)
+	addNodeOpts, err := genAddNodeOptions(&node.NodeDSL)
 	if err != nil {
 		return err
 	}

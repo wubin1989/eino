@@ -2,7 +2,7 @@ package compose
 
 type GraphDSL struct {
 	ID              string            `json:"id" yaml:"id"`
-	Namespace       string            `json:"namespace" yaml:"namespace"`
+	Namespace       string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Name            *string           `json:"name,omitempty" yaml:"name,omitempty"`
 	InputType       TypeID            `json:"input_type" yaml:"input_type"`
 	StateType       *TypeID           `json:"state_type,omitempty" yaml:"state_type,omitempty"`
@@ -15,7 +15,7 @@ type GraphDSL struct {
 
 type WorkflowDSL struct {
 	ID              string                  `json:"id" yaml:"id"`
-	Namespace       string                  `json:"namespace" yaml:"namespace"`
+	Namespace       string                  `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 	Name            *string                 `json:"name" yaml:"name"`
 	InputType       TypeID                  `json:"input_type" yaml:"input_type"`
 	OutputType      TypeID                  `json:"output_type" yaml:"output_type"`
@@ -35,8 +35,8 @@ type NodeDSL struct {
 	Configs          []Config        `json:"configs,omitempty" yaml:"configs,omitempty"`
 	InputKey         *string         `json:"input_key,omitempty" yaml:"input_key,omitempty"`
 	OutputKey        *string         `json:"output_key,omitempty" yaml:"output_key,omitempty"`
-	Graph            *GraphDSL       `json:"graph,omitempty" yaml:"graph_dsl,omitempty"`
-	Workflow         *WorkflowDSL    `json:"workflow,omitempty" yaml:"workflow_dsl,omitempty"`
+	Graph            *GraphDSL       `json:"graph,omitempty" yaml:"graph,omitempty"`
+	Workflow         *WorkflowDSL    `json:"workflow,omitempty" yaml:"workflow,omitempty"`
 	StatePreHandler  *StateHandlerID `json:"state_pre_handler,omitempty" yaml:"state_pre_handler,omitempty"`
 	StatePostHandler *StateHandlerID `json:"state_post_handler,omitempty" yaml:"state_post_handler,omitempty"`
 }
@@ -54,7 +54,6 @@ type Slot struct {
 	Path FieldPath `json:"path,omitempty" yaml:"path,omitempty"`
 
 	Configs []Config `json:"configs,omitempty" yaml:"configs,omitempty"`
-	Slots   []Slot   `json:"slots,omitempty" yaml:"slots,omitempty"` // nested slots
 }
 
 type EdgeDSL struct {
@@ -77,7 +76,7 @@ type GraphBranchDSL struct {
 type StateHandlerID string
 
 type WorkflowNodeDSL struct {
-	*NodeDSL     `json:"node" yaml:"node"`
+	NodeDSL      `json:"node" yaml:"node"`
 	Inputs       []*WorkflowNodeInputDSL `json:"inputs,omitempty" yaml:"inputs,omitempty"`
 	Dependencies []string                `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 	StaticValues []StaticValue           `json:"static_value,omitempty" yaml:"static_value,omitempty"`
