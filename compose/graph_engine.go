@@ -55,6 +55,20 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (Runnable[any, any], error
 	return g.Compile(ctx, compileOptions...)
 }
 
+func InvokeGraph(ctx context.Context, r Runnable[any, any], inType TypeID, in string) (any, error) {
+	inputType, ok := typeMap[inType]
+	if !ok {
+		return nil, fmt.Errorf("type not found: %v", inType)
+	}
+
+	v, err := inputType.Instantiate(ctx, &in, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.Invoke(ctx, v.Interface())
+}
+
 func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 	addNodeOpts, err := genAddNodeOptions(dsl)
 	if err != nil {
@@ -508,14 +522,18 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 	case BasicTypeStruct, BasicTypeArray, BasicTypeMap:
 		switch t.InstantiationType {
 		case InstantiationTypeUnmarshal:
-			if config != nil {
-				return reflect.Value{}, fmt.Errorf("config is not allowed when instantiate by unmarshal: %v", t.ID)
+			if config != nil && len(configs) > 0 {
+				return reflect.Value{}, fmt.Errorf("config and configs both present when instantiate by unmarshal: %v", t.ID)
 			}
 			if len(slots) > 0 {
 				return reflect.Value{}, fmt.Errorf("slots are not allowed when instantiate by unmarshal: %v", t.ID)
 			}
 			if len(configs) > 1 {
 				return reflect.Value{}, fmt.Errorf("configs are not allowed when instantiate by unmarshal: %v", t.ID)
+			}
+
+			if config != nil {
+				return t.InstantiateByUnmarshal(ctx, Config{Value: *config})
 			}
 			return t.InstantiateByUnmarshal(ctx, configs[0])
 		case InstantiationTypeFunction:

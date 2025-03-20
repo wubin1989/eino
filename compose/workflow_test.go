@@ -758,7 +758,9 @@ func TestPrefilledValue(t *testing.T) {
 		wf := NewWorkflow[string, map[string]any]()
 		wf.AddLambdaNode("0", InvokableLambda(func(ctx context.Context, in map[string]any) (output map[string]any, err error) {
 			return in, nil
-		})).AddInput(START, ToField(START)).SetStaticValue(FieldPath{"prefilled"}, "yo-ho")
+		})).
+			AddInput(START, ToField(START)).
+			SetStaticValue(FieldPath{"prefilled"}, "yo-ho")
 		wf.AddEnd("0")
 		r, err := wf.Compile(context.Background())
 		assert.NoError(t, err)

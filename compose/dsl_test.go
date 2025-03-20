@@ -22,10 +22,9 @@ import (
 
 func TestGraphWithPassthrough(t *testing.T) {
 	dsl := &GraphDSL{
-		ID:              "test",
-		Namespace:       "test",
-		Name:            generic.PtrOf("test_passthrough"),
-		NodeTriggerMode: generic.PtrOf(AllPredecessor),
+		ID:        "test",
+		Namespace: "test",
+		Name:      generic.PtrOf("test_passthrough"),
 		Nodes: []*NodeDSL{
 			{
 				Key:       "1",

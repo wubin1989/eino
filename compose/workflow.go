@@ -33,10 +33,11 @@ import (
 
 // WorkflowNode is the node of the Workflow.
 type WorkflowNode struct {
-	g            *graph
-	key          string
-	addInputs    []func()
-	staticValues map[string]any
+	g                *graph
+	key              string
+	addInputs        []func()
+	staticValues     map[string]any
+	dependencySetter func(fromNodeKey string, typ dependencyType)
 }
 
 // Workflow is wrapper of graph, replacing AddEdge with declaring dependencies and field mappings between nodes.
@@ -45,7 +46,16 @@ type Workflow[I, O any] struct {
 	g                *graph
 	workflowNodes    map[string]*WorkflowNode
 	workflowBranches map[string]*WorkflowBranch
+	dependencies     map[string]map[string]dependencyType
 }
+
+type dependencyType int
+
+const (
+	directDependency dependencyType = iota
+	noDirectDependency
+	branchDependency
+)
 
 func withInputType(typ reflect.Type) NewGraphOption {
 	return func(ngo *newGraphOptions) {
@@ -76,6 +86,7 @@ func NewWorkflow[I, O any](opts ...NewGraphOption) *Workflow[I, O] {
 		),
 		workflowNodes:    make(map[string]*WorkflowNode),
 		workflowBranches: make(map[string]*WorkflowBranch),
+		dependencies:     make(map[string]map[string]dependencyType),
 	}
 
 	return wf
@@ -320,14 +331,17 @@ func (n *WorkflowNode) addDependencyRelation(fromNodeKey string, inputs []*Field
 	if options.noDirectDependency {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addIndirectEdgeWithMappings(fromNodeKey, n.key, inputs...)
+			n.dependencySetter(fromNodeKey, noDirectDependency)
 		})
 	} else if options.dependencyWithoutInput {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addControlOnlyEdgeWithMappings(fromNodeKey, n.key, inputs...)
+			n.dependencySetter(fromNodeKey, directDependency)
 		})
 	} else {
 		n.addInputs = append(n.addInputs, func() {
 			_ = n.g.addEdgeWithMappings(fromNodeKey, n.key, inputs...)
+			n.dependencySetter(fromNodeKey, directDependency)
 		})
 	}
 
@@ -450,15 +464,41 @@ func (wf *Workflow[I, O]) addEndDependencyRelation(fromNodeKey string, inputs []
 		})
 	}
 
+	if _, ok := wf.dependencies[END]; !ok {
+		wf.dependencies[END] = make(map[string]dependencyType)
+	}
+
 	if options.noDirectDependency {
 		_ = wf.g.addIndirectEdgeWithMappings(fromNodeKey, END, inputs...)
+		wf.dependencies[END][fromNodeKey] = noDirectDependency
 	} else if options.dependencyWithoutInput {
 		_ = wf.g.addControlOnlyEdgeWithMappings(fromNodeKey, END, inputs...)
+		wf.dependencies[END][fromNodeKey] = directDependency
 	} else {
 		_ = wf.g.addEdgeWithMappings(fromNodeKey, END, inputs...)
+		wf.dependencies[END][fromNodeKey] = directDependency
 	}
 
 	return wf
+}
+
+func (wf *Workflow[I, O]) controlledByBranch(key string) bool {
+	fromNodeKey2DepType, ok := wf.dependencies[key]
+	if !ok {
+		return false
+	}
+
+	for pre, dep := range fromNodeKey2DepType {
+		if dep == branchDependency {
+			return true
+		}
+
+		if wf.controlledByBranch(pre) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOptions) (*composableRunnable, error) {
@@ -467,22 +507,10 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 	}
 
 	for _, n := range wf.workflowNodes {
-		const valueProviderSuffix = "\x1Fvalue\x1Fprovider"
-		if len(n.staticValues) > 0 {
-			provider := wf.AddLambdaNode(fmt.Sprintf("%s%s", n.key, valueProviderSuffix), valueProvider(n.staticValues)).AddInput(START)
-			fieldMappings := make([]*FieldMapping, 0, len(n.staticValues))
-			for path := range n.staticValues {
-				fieldPath := splitFieldPath(path)
-				fieldMappings = append(fieldMappings, MapFieldPaths(fieldPath, fieldPath))
-			}
-			n.AddInputWithOptions(provider.key, fieldMappings, WithNoDirectDependency())
-		}
-	}
-
-	for _, n := range wf.workflowNodes {
 		for _, addInput := range n.addInputs {
 			addInput()
 		}
+		n.addInputs = nil
 	}
 
 	for _, wb := range wf.workflowBranches {
@@ -505,8 +533,46 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 		for _, addInput := range passthrough.addInputs {
 			addInput()
 		}
+		passthrough.addInputs = nil
 
 		_ = wf.g.addBranch(passthrough.key, wb.GraphBranch, true)
+
+		for endNode := range wb.endNodes {
+			if endNode == END {
+				if _, ok := wf.dependencies[END]; !ok {
+					wf.dependencies[END] = make(map[string]dependencyType)
+				}
+				wf.dependencies[END][passthrough.key] = branchDependency
+			} else {
+				n := wf.workflowNodes[endNode]
+				n.dependencySetter(passthrough.key, branchDependency)
+			}
+		}
+	}
+
+	for _, n := range wf.workflowNodes {
+		const valueProviderSuffix = "\x1Fvalue\x1Fprovider"
+		if len(n.staticValues) > 0 {
+			provider := wf.AddLambdaNode(fmt.Sprintf("%s%s", n.key, valueProviderSuffix), valueProvider(n.staticValues)).AddInput(START)
+			fieldMappings := make([]*FieldMapping, 0, len(n.staticValues))
+			for path := range n.staticValues {
+				fieldPath := splitFieldPath(path)
+				fieldMappings = append(fieldMappings, MapFieldPaths(fieldPath, fieldPath))
+			}
+
+			if wf.controlledByBranch(n.key) {
+				n.AddInputWithOptions(provider.key, fieldMappings, WithNoDirectDependency())
+			} else {
+				n.AddInput(provider.key, fieldMappings...)
+			}
+
+			for _, addInput := range provider.addInputs {
+				addInput()
+			}
+			for _, addInput := range n.addInputs {
+				addInput()
+			}
+		}
 	}
 
 	// TODO: check indirect edges are legal
@@ -515,7 +581,16 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 }
 
 func (wf *Workflow[I, O]) initNode(key string) *WorkflowNode {
-	n := &WorkflowNode{g: wf.g, key: key, staticValues: make(map[string]any)}
+	n := &WorkflowNode{
+		g:            wf.g,
+		key:          key,
+		staticValues: make(map[string]any),
+		dependencySetter: func(fromNodeKey string, typ dependencyType) {
+			if _, ok := wf.dependencies[key]; !ok {
+				wf.dependencies[key] = make(map[string]dependencyType)
+			}
+			wf.dependencies[key][fromNodeKey] = typ
+		}}
 	wf.workflowNodes[key] = n
 	return n
 }
