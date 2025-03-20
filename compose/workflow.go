@@ -27,7 +27,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/retriever"
-	"github.com/cloudwego/eino/internal/generic"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -609,36 +608,21 @@ func (wf *Workflow[I, O]) initNode(key string) *WorkflowNode {
 }
 
 func (wf *Workflow[I, O]) inputConverter() handlerPair {
-	return handlerPair{
-		invoke:    defaultValueChecker[I],
-		transform: defaultStreamConverter[I],
-	}
+	return wf.g.inputConverter()
 }
 
 func (wf *Workflow[I, O]) inputFieldMappingConverter() handlerPair {
-	return handlerPair{
-		invoke:    buildFieldMappingConverter[I](),
-		transform: buildStreamFieldMappingConverter[I](),
-	}
+	return wf.g.inputFieldMappingConverter()
 }
 
 func (wf *Workflow[I, O]) inputType() reflect.Type {
-	return generic.TypeOf[I]()
+	return wf.g.inputType()
 }
 
 func (wf *Workflow[I, O]) outputType() reflect.Type {
-	return generic.TypeOf[O]()
+	return wf.g.outputType()
 }
 
 func (wf *Workflow[I, O]) component() component {
 	return wf.g.component()
 }
-
-/*func valueProvider(prefilledValues map[string]any) *Lambda {
-	i := func(ctx context.Context, _ any, opts ...any) (map[string]any, error) {
-		return prefilledValues, nil
-
-	}
-
-	return anyLambda(i, nil, nil, nil)
-}*/

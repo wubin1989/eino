@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 
 	"github.com/cloudwego/eino/internal/generic"
 	"github.com/cloudwego/eino/schema"
@@ -78,7 +79,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 			startValue, ok := chunk[START]
 			if ok {
 				if startValue == "hello" {
-					return "lambda4", nil
+					return "sub_workflow", nil
 				} else {
 					return "lambda3", nil
 				}
@@ -104,6 +105,19 @@ func TestWorkflowFromDSL(t *testing.T) {
 		delete(implMap, "lambda5")
 		delete(branchFunctionMap, "condition")
 	}()
+
+	subDSL := &WorkflowDSL{
+		ID:         "sub_workflow",
+		Namespace:  "test",
+		Name:       generic.PtrOf("sub_workflow"),
+		InputType:  "map[string]any",
+		OutputType: "map[string]any",
+		EndInputs: []*WorkflowNodeInputDSL{
+			{
+				FromNodeKey: START,
+			},
+		},
+	}
 
 	dsl := &WorkflowDSL{
 		ID:         "test",
@@ -161,8 +175,8 @@ func TestWorkflowFromDSL(t *testing.T) {
 			},
 			{
 				NodeDSL: &NodeDSL{
-					Key:    "lambda4",
-					ImplID: "lambda4",
+					Key:         "sub_workflow",
+					WorkflowDSL: subDSL,
 				},
 				Inputs: []*WorkflowNodeInputDSL{
 					{
@@ -206,7 +220,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 					Condition: "condition",
 					EndNodes: []string{
 						"lambda3",
-						"lambda4",
+						"sub_workflow",
 					},
 				},
 				Inputs: []*WorkflowNodeInputDSL{
@@ -237,11 +251,11 @@ func TestWorkflowFromDSL(t *testing.T) {
 		},
 		EndInputs: []*WorkflowNodeInputDSL{
 			{
-				FromNodeKey: "lambda4",
+				FromNodeKey: "sub_workflow",
 				FieldPathMappings: []FieldPathMapping{
 					{
-						From: FieldPath{"lambda4"},
-						To:   FieldPath{"lambda4"},
+						From: FieldPath{"lambda2"},
+						To:   FieldPath{"lambda2"},
 					},
 				},
 			},
@@ -265,13 +279,17 @@ func TestWorkflowFromDSL(t *testing.T) {
 		},
 	}
 
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
+
 	ctx := context.Background()
 	r, err := CompileWorkflow(ctx, dsl)
 	assert.NoError(t, err)
 	out, err := r.Invoke(ctx, `{"start": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{
-		"lambda4": "4",
+		"lambda2": "2",
 	}, out)
 
 	outS, err := r.Transform(ctx, `{"start": "hello1"}`)

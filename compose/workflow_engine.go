@@ -119,39 +119,41 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 		wfNode = reflect.ValueOf(wf.AddGraphNode(dsl.Key, subGraph, addNodeOpts...))
 	}
 
-	implMeta, ok := implMap[dsl.ImplID]
-	if !ok {
-		return fmt.Errorf("impl not found: %v", dsl.ImplID)
-	}
-
-	if implMeta.ComponentType == ComponentOfLambda {
-		lambda := implMeta.Lambda
-		if lambda == nil {
-			return fmt.Errorf("lambda not found: %v", dsl.ImplID)
-		}
-
-		wfNode = reflect.ValueOf(wf.AddLambdaNode(dsl.Key, lambda(), addNodeOpts...))
-	} else {
-		typeMeta, ok := typeMap[implMeta.TypeID]
+	if !wfNode.IsValid() {
+		implMeta, ok := implMap[dsl.ImplID]
 		if !ok {
-			return fmt.Errorf("type not found: %v", implMeta.TypeID)
+			return fmt.Errorf("impl not found: %v", dsl.ImplID)
 		}
 
-		result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
-		if err != nil {
-			return err
-		}
+		if implMeta.ComponentType == ComponentOfLambda {
+			lambda := implMeta.Lambda
+			if lambda == nil {
+				return fmt.Errorf("lambda not found: %v", dsl.ImplID)
+			}
 
-		addFn, ok := comp2WorkflowAddFn[implMeta.ComponentType]
-		if !ok {
-			return fmt.Errorf("add workflow node function not found: %v", implMeta.ComponentType)
-		}
-		results := addFn.CallSlice(append([]reflect.Value{reflect.ValueOf(wf), reflect.ValueOf(dsl.Key), result, reflect.ValueOf(addNodeOpts)}))
-		if len(results) != 1 {
-			return fmt.Errorf("add workflow node function return value length mismatch: given %d, defined %d", len(results), 1)
-		}
+			wfNode = reflect.ValueOf(wf.AddLambdaNode(dsl.Key, lambda(), addNodeOpts...))
+		} else {
+			typeMeta, ok := typeMap[implMeta.TypeID]
+			if !ok {
+				return fmt.Errorf("type not found: %v", implMeta.TypeID)
+			}
 
-		wfNode = results[0]
+			result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
+			if err != nil {
+				return err
+			}
+
+			addFn, ok := comp2WorkflowAddFn[implMeta.ComponentType]
+			if !ok {
+				return fmt.Errorf("add workflow node function not found: %v", implMeta.ComponentType)
+			}
+			results := addFn.CallSlice(append([]reflect.Value{reflect.ValueOf(wf), reflect.ValueOf(dsl.Key), result, reflect.ValueOf(addNodeOpts)}))
+			if len(results) != 1 {
+				return fmt.Errorf("add workflow node function return value length mismatch: given %d, defined %d", len(results), 1)
+			}
+
+			wfNode = results[0]
+		}
 	}
 
 	_ = addInputsAndDependencies(wfNode, node.Inputs, node.Dependencies, addInputFn, addInputWithOptionFn, addDependencyFn)
