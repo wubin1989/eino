@@ -24,6 +24,8 @@ type WorkflowDSL struct {
 	ID              string                  `json:"id"`
 	Namespace       string                  `json:"namespace"`
 	Name            *string                 `json:"name"`
+	InputType       TypeID                  `json:"input_type"`
+	OutputType      TypeID                  `json:"output_type"`
 	StateType       *TypeID                 `json:"state_type,omitempty"`
 	Nodes           []*WorkflowNodeDSL      `json:"nodes,omitempty"`
 	Branches        []*WorkflowBranchDSL    `json:"branches,omitempty"`

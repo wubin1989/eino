@@ -47,6 +47,18 @@ type Workflow[I, O any] struct {
 	workflowBranches map[string]*WorkflowBranch
 }
 
+func withInputType(typ reflect.Type) NewGraphOption {
+	return func(ngo *newGraphOptions) {
+		ngo.inputType = typ
+	}
+}
+
+func withOutputType(typ reflect.Type) NewGraphOption {
+	return func(ngo *newGraphOptions) {
+		ngo.outputType = typ
+	}
+}
+
 // NewWorkflow creates a new Workflow.
 func NewWorkflow[I, O any](opts ...NewGraphOption) *Workflow[I, O] {
 	options := &newGraphOptions{}
@@ -59,6 +71,8 @@ func NewWorkflow[I, O any](opts ...NewGraphOption) *Workflow[I, O] {
 			ComponentOfWorkflow,
 			options.withState,
 			options.stateType,
+			options.inputType,
+			options.outputType,
 		),
 		workflowNodes:    make(map[string]*WorkflowNode),
 		workflowBranches: make(map[string]*WorkflowBranch),

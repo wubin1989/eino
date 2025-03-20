@@ -24,8 +24,9 @@ import (
 )
 
 type newGraphOptions struct {
-	withState func(ctx context.Context) any
-	stateType reflect.Type
+	withState             func(ctx context.Context) any
+	stateType             reflect.Type
+	inputType, outputType reflect.Type
 }
 
 type NewGraphOption func(ngo *newGraphOptions)
@@ -76,6 +77,7 @@ func NewGraph[I, O any](opts ...NewGraphOption) *Graph[I, O] {
 			ComponentOfGraph,
 			options.withState,
 			options.stateType,
+			nil, nil,
 		),
 	}
 

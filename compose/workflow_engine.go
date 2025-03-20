@@ -24,6 +24,17 @@ func NewWorkflowFromDSL(ctx context.Context, dsl *WorkflowDSL) (*Workflow[any, a
 		return nil, err
 	}
 
+	inputType, ok := typeMap[dsl.InputType]
+	if !ok {
+		return nil, fmt.Errorf("input type not found: %v", dsl.InputType)
+	}
+	outputType, ok := typeMap[dsl.OutputType]
+	if !ok {
+		return nil, fmt.Errorf("output type not found: %v", dsl.OutputType)
+	}
+
+	newGraphOptions = append(newGraphOptions, withInputType(*inputType.ReflectType), withOutputType(*outputType.ReflectType))
+
 	wf := NewWorkflow[any, any](newGraphOptions...)
 
 	// add workflow nodes, then add inputs and dependencies

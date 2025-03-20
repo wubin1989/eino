@@ -125,6 +125,11 @@ var typeMap = map[TypeID]*TypeMeta{
 		ID:        "embedding.Embedder",
 		BasicType: BasicTypeInterface,
 	},
+	"map[string]any": {
+		ID:          "map[string]any",
+		BasicType:   BasicTypeMap,
+		ReflectType: generic.PtrOf(reflect.TypeOf(map[string]any{})),
+	},
 }
 
 var branchFunctionMap = map[BranchFunctionID]*BranchFunction{}

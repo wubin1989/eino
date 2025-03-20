@@ -165,7 +165,17 @@ func buildFieldMappingConverter[I any]() func(input any) (any, error) {
 			panic(newUnexpectedInputTypeErr(reflect.TypeOf(map[FieldMapping]any{}), reflect.TypeOf(input)))
 		}
 
-		return convertTo[I](in)
+		return doConvertTo(in, generic.TypeOf[I]())
+	}
+}
+
+func buildFieldMappingConverterWithReflect(typ reflect.Type) func(input any) (any, error) {
+	return func(input any) (any, error) {
+		in, ok := input.(map[FieldMapping]any)
+		if !ok {
+			panic(newUnexpectedInputTypeErr(reflect.TypeOf(map[FieldMapping]any{}), reflect.TypeOf(input)))
+		}
+		return doConvertTo(in, typ)
 	}
 }
 
@@ -177,13 +187,34 @@ func buildStreamFieldMappingConverter[I any]() func(input streamReader) streamRe
 		}
 
 		return packStreamReader(schema.StreamReaderWithConvert(s, func(v map[FieldMapping]any) (I, error) {
-			return convertTo[I](v)
+			t, err := doConvertTo(v, generic.TypeOf[I]())
+			if err != nil {
+				var i I
+				return i, err
+			}
+			return t.(I), nil
 		}))
 	}
 }
 
-func convertTo[T any](mappings map[FieldMapping]any) (T, error) {
-	t := generic.NewInstance[T]()
+func buildStreamFieldMappingConverterWithReflect(typ reflect.Type) func(input streamReader) streamReader {
+	return func(input streamReader) streamReader {
+		s, ok := unpackStreamReader[map[FieldMapping]any](input)
+		if !ok {
+			panic("mappingStreamAssign incoming streamReader chunk type not map[string]any")
+		}
+
+		return packStreamReader(schema.StreamReaderWithConvert(s, func(v map[FieldMapping]any) (any, error) {
+			return doConvertTo(v, typ)
+		}))
+	}
+}
+
+func doConvertTo(mappings map[FieldMapping]any, typ reflect.Type) (any, error) {
+	tValue := newInstanceByType(typ)
+	if !tValue.CanAddr() {
+		tValue = newInstanceByType(reflect.PointerTo(typ)).Elem()
+	}
 
 	var (
 		err          error
@@ -199,35 +230,29 @@ func convertTo[T any](mappings map[FieldMapping]any) (T, error) {
 		if len(values) > 1 {
 			taken, err = mergeValues(values)
 			if err != nil {
-				return t, fmt.Errorf("convertTo %T failed when merge multiple values for field %s, %w", t, fieldName, err)
+				return nil, fmt.Errorf("convertTo %v failed when merge multiple values for field %s, %w", tValue.Type(), fieldName, err)
 			}
 		}
 
-		t, err = assignOne(t, taken, fieldName)
+		tValue, err = assignOne(tValue, taken, fieldName)
 		if err != nil {
 			panic(fmt.Errorf("convertTo failed when must succeed, %w", err))
 		}
 	}
 
-	return t, nil
+	return tValue.Interface(), nil
 }
 
-func assignOne[T any](dest T, taken any, to string) (T, error) {
-	destValue := reflect.ValueOf(dest)
-
-	if !destValue.CanAddr() {
-		destValue = reflect.ValueOf(&dest).Elem()
-	}
-
+func assignOne(destValue reflect.Value, taken any, to string) (reflect.Value, error) {
 	if len(to) == 0 { // assign to output directly
 		toSet := reflect.ValueOf(taken)
 		if !toSet.Type().AssignableTo(destValue.Type()) {
-			return dest, fmt.Errorf("mapping entire value has a mismatched type. from=%v, to=%v", toSet.Type(), destValue.Type())
+			return destValue, fmt.Errorf("mapping entire value has a mismatched type. from=%v, to=%v", toSet.Type(), destValue.Type())
 		}
 
 		destValue.Set(toSet)
 
-		return destValue.Interface().(T), nil
+		return destValue, nil
 	}
 
 	var (
@@ -246,7 +271,7 @@ func assignOne[T any](dest T, taken any, to string) (T, error) {
 			if destValue.Kind() == reflect.Map {
 				key, err := checkAndExtractToMapKey(path, destValue, toSet)
 				if err != nil {
-					return dest, err
+					return destValue, err
 				}
 
 				destValue.SetMapIndex(key, toSet)
@@ -255,12 +280,12 @@ func assignOne[T any](dest T, taken any, to string) (T, error) {
 					parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
 				}
 
-				return originalDestValue.Interface().(T), nil
+				return originalDestValue, nil
 			}
 
 			field, err := checkAndExtractToField(path, destValue, toSet)
 			if err != nil {
-				return dest, err
+				return destValue, err
 			}
 
 			field.Set(toSet)
@@ -269,12 +294,12 @@ func assignOne[T any](dest T, taken any, to string) (T, error) {
 				parentMap.SetMapIndex(reflect.ValueOf(parentKey), destValue)
 			}
 
-			return originalDestValue.Interface().(T), nil
+			return originalDestValue, nil
 		}
 
 		if destValue.Kind() == reflect.Map {
 			if !reflect.TypeOf(path).AssignableTo(destValue.Type().Key()) {
-				return dest, fmt.Errorf("field mapping to a map key but output is not a map with string key, type=%v", destValue.Type())
+				return destValue, fmt.Errorf("field mapping to a map key but output is not a map with string key, type=%v", destValue.Type())
 			}
 
 			keyValue := reflect.ValueOf(path)
@@ -301,16 +326,16 @@ func assignOne[T any](dest T, taken any, to string) (T, error) {
 		}
 
 		if destValue.Kind() != reflect.Struct {
-			return dest, fmt.Errorf("field mapping to a struct field but output is not a struct, type=%v", destValue.Type())
+			return destValue, fmt.Errorf("field mapping to a struct field but output is not a struct, type=%v", destValue.Type())
 		}
 
 		field := destValue.FieldByName(path)
 		if !field.IsValid() {
-			return dest, fmt.Errorf("field mapping to a struct field, but field not found. field=%v, outputType=%v", path, destValue.Type())
+			return destValue, fmt.Errorf("field mapping to a struct field, but field not found. field=%v, outputType=%v", path, destValue.Type())
 		}
 
 		if !field.CanSet() {
-			return dest, fmt.Errorf("field mapping to a struct field, but field not exported. field=%v, outputType=%v", path, destValue.Type())
+			return destValue, fmt.Errorf("field mapping to a struct field, but field not exported. field=%v, outputType=%v", path, destValue.Type())
 		}
 
 		instantiateIfNeeded(field)
@@ -355,13 +380,8 @@ func newInstanceByType(typ reflect.Type) reflect.Value {
 	case reflect.Ptr:
 		typ = typ.Elem()
 		origin := reflect.New(typ)
-		inst := origin
-
-		for typ.Kind() == reflect.Ptr {
-			typ = typ.Elem()
-			inst = inst.Elem()
-			inst.Set(newInstanceByType(typ))
-		}
+		nested := newInstanceByType(typ)
+		origin.Elem().Set(nested)
 
 		return origin
 	default:

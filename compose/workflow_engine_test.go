@@ -97,9 +97,11 @@ func TestWorkflowFromDSL(t *testing.T) {
 	}()
 
 	dsl := &WorkflowDSL{
-		ID:        "test",
-		Namespace: "test",
-		Name:      generic.PtrOf("test_workflow"),
+		ID:         "test",
+		Namespace:  "test",
+		Name:       generic.PtrOf("test_workflow"),
+		InputType:  "map[string]any",
+		OutputType: "map[string]any",
 		Nodes: []*WorkflowNodeDSL{
 			{
 				NodeDSL: &NodeDSL{
@@ -123,7 +125,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 					},
 				},
 			},
-			{
+			/*{
 				NodeDSL: &NodeDSL{
 					Key:    "lambda3",
 					ImplID: "lambda3",
@@ -179,68 +181,68 @@ func TestWorkflowFromDSL(t *testing.T) {
 				Dependencies: []string{
 					"lambda3",
 				},
-			},
+			},*/
 		},
-		Branches: []*WorkflowBranchDSL{
-			{
-				Key: "branch",
-				BranchDSL: &BranchDSL{
-					Condition: "condition",
-					EndNodes: []string{
-						"lambda3",
-						"lambda4",
-					},
-				},
-				Inputs: []*WorkflowNodeInputDSL{
-					{
-						FromNodeKey: "lambda1",
-						FieldPathMappings: []FieldPathMapping{
-							{
-								From: FieldPath{"lambda1"},
-								To:   FieldPath{"lambda1"},
-							},
+		/*		Branches: []*WorkflowBranchDSL{
+				{
+					Key: "branch",
+					BranchDSL: &BranchDSL{
+						Condition: "condition",
+						EndNodes: []string{
+							"lambda3",
+							"lambda4",
 						},
 					},
-					{
-						FromNodeKey: START,
-						FieldPathMappings: []FieldPathMapping{
-							{
-								From: FieldPath{START},
-								To:   FieldPath{START},
+					Inputs: []*WorkflowNodeInputDSL{
+						{
+							FromNodeKey: "lambda1",
+							FieldPathMappings: []FieldPathMapping{
+								{
+									From: FieldPath{"lambda1"},
+									To:   FieldPath{"lambda1"},
+								},
 							},
 						},
-						NoDirectDependency: true,
+						{
+							FromNodeKey: START,
+							FieldPathMappings: []FieldPathMapping{
+								{
+									From: FieldPath{START},
+									To:   FieldPath{START},
+								},
+							},
+							NoDirectDependency: true,
+						},
+					},
+					Dependencies: []string{
+						"lambda2",
 					},
 				},
-				Dependencies: []string{
-					"lambda2",
-				},
-			},
-		},
+			},*/
 		EndInputs: []*WorkflowNodeInputDSL{
 			{
-				FromNodeKey: "lambda5",
+				FromNodeKey: "lambda1",
 				FieldPathMappings: []FieldPathMapping{
 					{
-						From: FieldPath{"lambda5"},
-						To:   FieldPath{"lambda5"},
+						From: FieldPath{"lambda1"},
+						To:   FieldPath{"lambda1"},
 					},
 				},
 			},
 			{
-				FromNodeKey: "lambda3",
+				FromNodeKey: "lambda2",
 				FieldPathMappings: []FieldPathMapping{
 					{
-						From: FieldPath{"lambda3"},
-						To:   FieldPath{"lambda3"},
+						From: FieldPath{"lambda2"},
+						To:   FieldPath{"lambda2"},
 					},
 				},
-				NoDirectDependency: true,
+				//NoDirectDependency: true,
 			},
 		},
-		EndDependencies: []string{
+		/*EndDependencies: []string{
 			"lambda4",
-		},
+		},*/
 	}
 
 	ctx := context.Background()

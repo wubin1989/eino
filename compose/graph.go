@@ -202,19 +202,46 @@ func newGraphFromGeneric[I, O any](
 	cmp component,
 	stateGenerator func(ctx context.Context) any,
 	stateType reflect.Type,
+	inputType, outputType reflect.Type,
 ) *graph {
+	var (
+		inputFieldMappingConverter, outputFieldMappingConverter             valueHandler
+		inputStreamFieldMappingConverter, outputStreamFieldMappingConverter streamHandler
+		expectedInputType, expectedOutputType                               reflect.Type
+	)
+
+	if inputType == nil {
+		inputFieldMappingConverter = buildFieldMappingConverter[I]()
+		inputStreamFieldMappingConverter = buildStreamFieldMappingConverter[I]()
+		expectedInputType = generic.TypeOf[I]()
+	} else {
+		inputFieldMappingConverter = buildFieldMappingConverterWithReflect(inputType)
+		inputStreamFieldMappingConverter = buildStreamFieldMappingConverterWithReflect(inputType)
+		expectedInputType = inputType
+	}
+
+	if outputType == nil {
+		outputFieldMappingConverter = buildFieldMappingConverter[O]()
+		outputStreamFieldMappingConverter = buildStreamFieldMappingConverter[O]()
+		expectedOutputType = generic.TypeOf[O]()
+	} else {
+		outputFieldMappingConverter = buildFieldMappingConverterWithReflect(outputType)
+		outputStreamFieldMappingConverter = buildStreamFieldMappingConverterWithReflect(outputType)
+		expectedOutputType = outputType
+	}
+
 	return newGraph(&newGraphConfig{
-		inputType:                         generic.TypeOf[I](),
-		outputType:                        generic.TypeOf[O](),
+		inputType:                         expectedInputType,
+		outputType:                        expectedOutputType,
 		filter:                            defaultStreamMapFilter[I],
 		inputChecker:                      defaultValueChecker[I],
 		outputChecker:                     defaultValueChecker[O],
 		inputConv:                         defaultStreamConverter[I],
 		outputConv:                        defaultStreamConverter[O],
-		inputFieldMappingConverter:        buildFieldMappingConverter[I](),
-		outputFieldMappingConverter:       buildFieldMappingConverter[O](),
-		inputStreamFieldMappingConverter:  buildStreamFieldMappingConverter[I](),
-		outputStreamFieldMappingConverter: buildStreamFieldMappingConverter[O](),
+		inputFieldMappingConverter:        inputFieldMappingConverter,
+		outputFieldMappingConverter:       outputFieldMappingConverter,
+		inputStreamFieldMappingConverter:  inputStreamFieldMappingConverter,
+		outputStreamFieldMappingConverter: outputStreamFieldMappingConverter,
 		cmp:                               cmp,
 		stateType:                         stateType,
 		stateGenerator:                    stateGenerator,
