@@ -181,7 +181,7 @@ func (wf *Workflow[I, O]) addPassthroughNode(key string, opts ...GraphAddNodeOpt
 //
 // Example:
 //
-//	// Map specific fields
+//	// Map between specific field
 //	node.AddInput("userNode", MapFields("user.name", "displayName"))
 //
 //	// Use entire output
@@ -475,7 +475,7 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 				fieldPath := splitFieldPath(path)
 				fieldMappings = append(fieldMappings, MapFieldPaths(fieldPath, fieldPath))
 			}
-			n.AddInput(provider.key, fieldMappings...)
+			n.AddInputWithOptions(provider.key, fieldMappings, WithNoDirectDependency())
 		}
 	}
 

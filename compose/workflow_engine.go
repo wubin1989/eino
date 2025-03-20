@@ -16,6 +16,7 @@ var (
 	branchAddInputFn           = reflect.ValueOf((*WorkflowBranch).AddInput)
 	branchAddInputWithOptionFn = reflect.ValueOf((*WorkflowBranch).AddInputWithOptions)
 	branchAddDependencyFn      = reflect.ValueOf((*WorkflowBranch).AddDependency)
+	setStaticValueFn           = reflect.ValueOf((*WorkflowNode).SetStaticValue)
 )
 
 func NewWorkflowFromDSL(ctx context.Context, dsl *WorkflowDSL) (*Workflow[any, any], error) {
@@ -141,6 +142,22 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 	}
 
 	_ = addInputsAndDependencies(wfNode, node.Inputs, node.Dependencies, addInputFn, addInputWithOptionFn, addDependencyFn)
+
+	for i := range node.StaticValues {
+		staticValue := node.StaticValues[i]
+		typeMeta, ok := typeMap[staticValue.TypeID]
+		if !ok {
+			return fmt.Errorf("type not found: %v", staticValue.TypeID)
+		}
+
+		v, err := typeMeta.Instantiate(ctx, &staticValue.Value, nil, nil)
+		if err != nil {
+			return err
+		}
+
+		results := setStaticValueFn.Call([]reflect.Value{wfNode, reflect.ValueOf(staticValue.Path), v})
+		wfNode = results[0]
+	}
 
 	return nil
 }

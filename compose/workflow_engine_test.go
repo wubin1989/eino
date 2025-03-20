@@ -131,6 +131,13 @@ func TestWorkflowFromDSL(t *testing.T) {
 						NoDirectDependency: true,
 					},
 				},
+				StaticValues: []StaticValue{
+					{
+						TypeID: "string",
+						Path:   FieldPath{"static_value"},
+						Value:  "static_value",
+					},
+				},
 			},
 			{
 				NodeDSL: &NodeDSL{
@@ -225,6 +232,10 @@ func TestWorkflowFromDSL(t *testing.T) {
 						From: FieldPath{"lambda3"},
 						To:   FieldPath{"lambda3"},
 					},
+					{
+						From: FieldPath{"static_value"},
+						To:   FieldPath{"static_value"},
+					},
 				},
 				NoDirectDependency: true,
 			},
@@ -250,6 +261,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{
-		"lambda3": "3",
+		"lambda3":      "3",
+		"static_value": "static_value",
 	}, out)
 }
