@@ -132,7 +132,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 				ImplID: "prompt.DefaultChatTemplate",
 				Configs: []Config{
 					{
-						Value: "0",
+						Value: 0,
 					},
 					{
 						Slot: &Slot{
@@ -142,7 +142,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 									Value: "history",
 								},
 								{
-									Value: "true",
+									Value: true,
 								},
 							},
 						},
@@ -231,15 +231,12 @@ func TestGraphWithRetriever(t *testing.T) {
 				ImplID: "testRetriever",
 				Configs: []Config{
 					{
-						Value: "{}",
 						Slots: []Slot{
 							{
 								TypeID: "testEmbedding",
 								Path:   FieldPath{"Embedding"},
 								Configs: []Config{
-									{
-										Value: "{}",
-									},
+									{},
 								},
 							},
 						},

@@ -44,26 +44,55 @@ var comp2WorkflowAddFn = map[components.Component]reflect.Value{
 	components.ComponentOfRetriever: reflect.ValueOf((*Workflow[any, any]).AddRetrieverNode),
 }
 
+const (
+	TypeIDString     = "string"
+	TypeIDBool       = "bool"
+	TypeIDInt        = "int"
+	TypeIDInt8       = "int8"
+	TypeIDInt16      = "int16"
+	TypeIDInt32      = "int32"
+	TypeIDInt64      = "int64"
+	TypeIDUint       = "uint"
+	TypeIDUint8      = "uint8"
+	TypeIDUint16     = "uint16"
+	TypeIDUint32     = "uint32"
+	TypeIDUint64     = "uint64"
+	TypeIDFloat32    = "float32"
+	TypeIDFloat64    = "float64"
+	TypeIDStringPtr  = "*string"
+	TypeIDBoolPtr    = "*bool"
+	TypeIDIntPtr     = "*int"
+	TypeIDInt8Ptr    = "*int8"
+	TypeIDInt16Ptr   = "*int16"
+	TypeIDInt32Ptr   = "*int32"
+	TypeIDInt64Ptr   = "*int64"
+	TypeIDUintPtr    = "*uint"
+	TypeIDUint8Ptr   = "*uint8"
+	TypeIDUint16Ptr  = "*uint16"
+	TypeIDUint32Ptr  = "*uint32"
+	TypeIDUint64Ptr  = "*uint64"
+	TypeIDFloat32Ptr = "*float32"
+	TypeIDFloat64Ptr = "*float64"
+)
+
 var typeMap = map[TypeID]*TypeMeta{
-	"string": {
-		ID:                "string",
-		BasicType:         BasicTypeString,
-		InstantiationType: InstantiationTypeLiteral,
+	TypeIDString: {
+		ID:        TypeIDString,
+		BasicType: BasicTypeString,
 	},
-	"bool": {
-		ID:                "bool",
-		BasicType:         BasicTypeBool,
-		InstantiationType: InstantiationTypeLiteral,
+	TypeIDBool: {
+		ID:        TypeIDBool,
+		BasicType: BasicTypeBool,
 	},
 	"schema.MessageTemplate": {
 		ID:        "schema.MessageTemplate",
 		BasicType: BasicTypeInterface, // this is a slot
 	},
 	"schema.Format": {
-		ID:                "schema.Format",
-		BasicType:         BasicTypeString,
-		InstantiationType: InstantiationTypeUnmarshal,
-		ReflectType:       generic.PtrOf(reflect.TypeOf(schema.FormatType(0))),
+		ID:          "schema.Format",
+		BasicType:   BasicTypeInteger,
+		IntegerType: generic.PtrOf(IntegerTypeUint8),
+		ReflectType: generic.PtrOf(reflect.TypeOf(schema.FormatType(0))),
 	},
 	"schema.messagePlaceholder": {
 		ID:                "schema.messagePlaceholder",
@@ -75,8 +104,8 @@ var typeMap = map[TypeID]*TypeMeta{
 			Name:      "schema.MessagesPlaceholder",
 			FuncValue: reflect.ValueOf(schema.MessagesPlaceholder),
 			InputTypes: []TypeID{
-				"string",
-				"bool",
+				TypeIDString,
+				TypeIDBool,
 			},
 			OutputTypes: []TypeID{
 				"schema.MessageTemplate",
@@ -107,10 +136,8 @@ var typeMap = map[TypeID]*TypeMeta{
 			IsVariadic: true,
 			InputTypes: []TypeID{
 				"schema.Format",
-				"*schema.Message", // dependencies only appear as fields or nested fields within Config, or as parameters to factory functions
-
 				// we can know this is an interface type, which is a slot
-				//"schema.MessageTemplate",
+				"schema.MessageTemplate",
 			},
 			OutputTypes: []TypeID{
 				"prompt.ChatTemplate",

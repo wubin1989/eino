@@ -138,7 +138,7 @@ type NodeDSL struct {
 }
 
 type Config struct {
-	Value string `json:"value,omitempty" yaml:"value,omitempty"`
+	Value any    `json:"value,omitempty" yaml:"value,omitempty"`
 	Slot  *Slot  `json:"slot,omitempty" yaml:"slot,omitempty"`
 	Slots []Slot `json:"slots,omitempty" yaml:"slots,omitempty"`
 	isCtx bool
@@ -214,7 +214,7 @@ type FieldPathMapping struct {
 
 type WorkflowBranchDSL struct {
 	Key          string `json:"key" yaml:"key"`
-	*BranchDSL   `json:"branch" yaml:"branch"`
+	BranchDSL    `json:"branch" yaml:"branch"`
 	Inputs       []*WorkflowNodeInputDSL `json:"inputs,omitempty" yaml:"inputs,omitempty"`
 	Dependencies []string                `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 }

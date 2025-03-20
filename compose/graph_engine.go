@@ -412,7 +412,17 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, conf Config) (ref
 		rType = reflect.PointerTo(rType)
 	}
 	instance := newInstanceByType(rType).Interface()
-	err := sonic.Unmarshal([]byte(conf.Value), instance)
+
+	value := conf.Value
+	if value == nil {
+		value = "{}"
+	}
+
+	strValue, ok := value.(string)
+	if !ok {
+		return reflect.Value{}, fmt.Errorf("config value is not a string when instantiate with unmarshal: %v", value)
+	}
+	err := sonic.Unmarshal([]byte(strValue), instance)
 	if err != nil {
 		return reflect.Value{}, err
 	}
@@ -507,24 +517,12 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) 
 				return reflect.Value{}, fmt.Errorf("type not found: %v", fTypeID)
 			}
 
-			switch fType.InstantiationType {
-			case InstantiationTypeUnmarshal:
-				rValue, err := fType.InstantiateByUnmarshal(ctx, conf)
-				if err != nil {
-					return reflect.Value{}, err
-				}
-
-				inputs = append(inputs, rValue)
-			case InstantiationTypeLiteral:
-				rValue, err := fType.InstantiateByLiteral(conf.Value)
-				if err != nil {
-					return reflect.Value{}, err
-				}
-
-				inputs = append(inputs, rValue)
-			default:
-				return reflect.Value{}, fmt.Errorf("unsupported instantiation type for function parameter: %v", fType.InstantiationType)
+			oneValue, err := fType.Instantiate(ctx, []Config{conf})
+			if err != nil {
+				return reflect.Value{}, err
 			}
+
+			inputs = append(inputs, oneValue)
 		}
 
 		inputValues := make([]reflect.Value, len(inputs))
@@ -579,162 +577,176 @@ func (t *TypeMeta) Instantiate(ctx context.Context, configs []Config) (reflect.V
 	}
 }
 
-func (t *TypeMeta) InstantiateByLiteral(value string) (reflect.Value, error) {
+func (t *TypeMeta) InstantiateByLiteral(value any) (reflect.Value, error) {
 	switch t.BasicType {
 	case BasicTypeString:
+		s, ok := value.(string)
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("value is not a string: %v", value)
+		}
 		if t.IsPtr {
-			return reflect.ValueOf(generic.PtrOf(value)), nil
+			if t.ID == TypeIDStringPtr {
+				return reflect.ValueOf(generic.PtrOf(s)), nil
+			} else {
+				if t.ReflectType == nil {
+					return reflect.Value{}, fmt.Errorf("reflect type is nil: %v", value)
+				}
+				return reflect.ValueOf(generic.PtrOf(s)).Convert(*t.ReflectType), nil
+			}
 		}
-		return reflect.ValueOf(value), nil
+
+		if t.ID == TypeIDString {
+			return reflect.ValueOf(s), nil
+		}
+		if t.ReflectType == nil {
+			return reflect.Value{}, fmt.Errorf("reflect type is nil: %v", value)
+		}
+		return reflect.ValueOf(s).Convert(*t.ReflectType), nil
 	case BasicTypeInteger:
+		i, ok := value.(int)
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("value is not an integer: %v", value)
+		}
+
 		if t.IntegerType == nil {
-			panic(fmt.Sprintf("basic type is %v, integer type is nil", t.BasicType))
+			return reflect.Value{}, fmt.Errorf("basic type is %v, integer type is nil", t.BasicType)
 		}
-		i64, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return reflect.Value{}, err
-		}
+		i64 := int64(i)
+		var result reflect.Value
+		var err error
 		switch *t.IntegerType {
 		case IntegerTypeInt8:
-			if i64 < math.MinInt8 || i64 > math.MaxInt8 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int8", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(int8(i64))), nil
-			}
-			return reflect.ValueOf(int8(i64)), nil
+			result, err = handleIntegerType(i64, math.MinInt8, math.MaxInt8, int8(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDInt8, TypeIDInt8Ptr)
 		case IntegerTypeInt16:
-			if i64 < math.MinInt16 || i64 > math.MaxInt16 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int16", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(int16(i64))), nil
-			}
-			return reflect.ValueOf(int16(i64)), nil
+			result, err = handleIntegerType(i64, math.MinInt16, math.MaxInt16, int16(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDInt16, TypeIDInt16Ptr)
 		case IntegerTypeInt32:
-			if i64 < math.MinInt32 || i64 > math.MaxInt32 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int32", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(int32(i64))), nil
-			}
-			return reflect.ValueOf(int32(i64)), nil
+			result, err = handleIntegerType(i64, math.MinInt32, math.MaxInt32, int32(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDInt32, TypeIDInt32Ptr)
 		case IntegerTypeInt64:
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(i64)), nil
-			}
-			return reflect.ValueOf(i64), nil
+			result, err = handleIntegerType(i64, math.MinInt64, math.MaxInt64, i64, t.IsPtr, t.ReflectType, t.ID, TypeIDInt64, TypeIDInt64Ptr)
 		case IntegerTypeUint8:
-			if i64 < 0 || i64 > math.MaxUint8 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint8", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(uint8(i64))), nil
-			}
-			return reflect.ValueOf(uint8(i64)), nil
+			result, err = handleIntegerType(i64, 0, math.MaxUint8, uint8(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint8, TypeIDUint8Ptr)
 		case IntegerTypeUint16:
-			if i64 < 0 || i64 > math.MaxUint16 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint16", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(uint16(i64))), nil
-			}
-			return reflect.ValueOf(uint16(i64)), nil
+			result, err = handleIntegerType(i64, 0, math.MaxUint16, uint16(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint16, TypeIDUint16Ptr)
 		case IntegerTypeUint32:
-			if i64 < 0 || i64 > math.MaxUint32 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint32", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(uint32(i64))), nil
-			}
-			return reflect.ValueOf(uint32(i64)), nil
+			result, err = handleIntegerType(i64, 0, math.MaxUint32, uint32(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint32, TypeIDUint32Ptr)
 		case IntegerTypeUint64:
-			if i64 < 0 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %d is negative and cannot be represented as uint64", i64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(uint64(i64))), nil
-			}
-			return reflect.ValueOf(uint64(i64)), nil
+			result, err = handleIntegerType(i64, 0, math.MaxUint64, uint64(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint64, TypeIDUint64Ptr)
 		case IntegerTypeInt:
 			if strconv.IntSize == 32 {
-				if i64 < math.MinInt32 || i64 > math.MaxInt32 {
-					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int (32-bit system)", i64)
-				}
-				if t.IsPtr {
-					return reflect.ValueOf(generic.PtrOf(int(i64))), nil
-				}
-				return reflect.ValueOf(int(i64)), nil
+				result, err = handleIntegerType(i64, math.MinInt32, math.MaxInt32, int(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDInt, TypeIDIntPtr)
 			} else {
-				if i64 < math.MinInt64 || i64 > math.MaxInt64 {
-					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for int (64-bit system)", i64)
-				}
-				if t.IsPtr {
-					return reflect.ValueOf(generic.PtrOf(int(i64))), nil
-				}
-				return reflect.ValueOf(int(i64)), nil
+				result, err = handleIntegerType(i64, math.MinInt64, math.MaxInt64, int(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDInt, TypeIDIntPtr)
 			}
 		case IntegerTypeUInt:
 			if strconv.IntSize == 32 {
-				if i64 < 0 || i64 > math.MaxUint32 {
-					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint (32-bit system)", i64)
-				}
-				if t.IsPtr {
-					return reflect.ValueOf(generic.PtrOf(uint(i64))), nil
-				}
-				return reflect.ValueOf(uint(i64)), nil
+				result, err = handleIntegerType(i64, 0, math.MaxUint32, uint(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint, TypeIDUintPtr)
 			} else {
 				if i64 < 0 {
 					return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range for uint (64-bit system)", i64)
 				}
-				if t.IsPtr {
-					return reflect.ValueOf(generic.PtrOf(uint(i64))), nil
-				}
-				return reflect.ValueOf(uint(i64)), nil
+				result, err = handleIntegerType(i64, 0, math.MaxUint64, uint(i64), t.IsPtr, t.ReflectType, t.ID, TypeIDUint, TypeIDUintPtr)
 			}
 		default:
-			panic(fmt.Sprintf("unsupported integer type: %v", *t.IntegerType))
+			return reflect.Value{}, fmt.Errorf("unsupported integer type: %v", *t.IntegerType)
 		}
-	case BasicTypeNumber:
-		if t.FloatType == nil {
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(float64(0))), nil
-			}
-			return reflect.ValueOf(float64(0)), nil
-		}
-		f64, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return reflect.Value{}, err
 		}
+		return result, nil
+	case BasicTypeNumber:
+		f64, ok := value.(float64)
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("value is not a float64: %v", value)
+		}
+
+		if t.FloatType == nil {
+			return reflect.Value{}, fmt.Errorf("basic type is %v, float type is nil", t.BasicType)
+		}
+
+		var result reflect.Value
+		var err error
 		switch *t.FloatType {
 		case FloatTypeFloat32:
-			if f64 < math.SmallestNonzeroFloat32 || f64 > math.MaxFloat32 {
-				return reflect.Value{}, fmt.Errorf("overflow: value %f is out of range for float32", f64)
-			}
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(float32(f64))), nil
-			}
-			return reflect.ValueOf(float32(f64)), nil
+			result, err = handleFloatType(f64, math.SmallestNonzeroFloat32, math.MaxFloat32, float32(f64), t.IsPtr, t.ReflectType, t.ID, TypeIDFloat32, TypeIDFloat32Ptr)
 		case FloatTypeFloat64:
-			if t.IsPtr {
-				return reflect.ValueOf(generic.PtrOf(f64)), nil
-			}
-			return reflect.ValueOf(f64), nil
+			result, err = handleFloatType(f64, math.SmallestNonzeroFloat64, math.MaxFloat64, f64, t.IsPtr, t.ReflectType, t.ID, TypeIDFloat64, TypeIDFloat64Ptr)
 		default:
-			panic(fmt.Sprintf("unsupported float type: %v", *t.FloatType))
+			return reflect.Value{}, fmt.Errorf("unsupported float type: %v", *t.FloatType)
 		}
-	case BasicTypeBool:
-		b, err := strconv.ParseBool(value)
 		if err != nil {
 			return reflect.Value{}, err
 		}
-		if t.IsPtr {
-			return reflect.ValueOf(generic.PtrOf(b)), nil
+		return result, nil
+	case BasicTypeBool:
+		b, ok := value.(bool)
+		if !ok {
+			return reflect.Value{}, fmt.Errorf("value is not a bool: %v", value)
 		}
-		return reflect.ValueOf(b), nil
+		if t.IsPtr {
+			if t.ID == TypeIDBoolPtr {
+				return reflect.ValueOf(generic.PtrOf(b)), nil
+			}
+
+			if t.ReflectType == nil {
+				return reflect.Value{}, fmt.Errorf("reflect type is nil: %v", value)
+			}
+			return reflect.ValueOf(generic.PtrOf(b)).Convert(*t.ReflectType), nil
+		}
+
+		if t.ID == TypeIDBool {
+			return reflect.ValueOf(b), nil
+		}
+		if t.ReflectType == nil {
+			return reflect.Value{}, fmt.Errorf("reflect type is nil: %v", value)
+		}
+		return reflect.ValueOf(b).Convert(*t.ReflectType), nil
 	default:
-		panic(fmt.Sprintf("unsupported basic type: %s", t.BasicType))
+		return reflect.Value{}, fmt.Errorf("unsupported basic type: %s", t.BasicType)
 	}
+}
+
+func handleIntegerType(value int64, min int64, max uint64, convertedValue any, isPtr bool, reflectType *reflect.Type, currentTypeID, nonPtrTypeID, ptrTypeID TypeID) (reflect.Value, error) {
+	if value < min || uint64(value) > max {
+		return reflect.Value{}, fmt.Errorf("overflow: value %d is out of range", value)
+	}
+	if isPtr {
+		if currentTypeID == ptrTypeID {
+			return reflect.ValueOf(generic.PtrOf(convertedValue)), nil
+		}
+		if reflectType == nil {
+			return reflect.Value{}, fmt.Errorf("reflect type is nil")
+		}
+		return reflect.ValueOf(generic.PtrOf(convertedValue)).Convert(*reflectType), nil
+	}
+	if currentTypeID == nonPtrTypeID {
+		return reflect.ValueOf(convertedValue), nil
+	}
+	if reflectType == nil {
+		return reflect.Value{}, fmt.Errorf("reflect type is nil")
+	}
+	return reflect.ValueOf(convertedValue).Convert(*reflectType), nil
+}
+
+func handleFloatType(value float64, min, max float64, convertedValue any, isPtr bool, reflectType *reflect.Type, currentTypeID, nonPtrTypeID, ptrTypeID TypeID) (reflect.Value, error) {
+	if value < min || value > max {
+		return reflect.Value{}, fmt.Errorf("overflow: value %f is out of range", value)
+	}
+	if isPtr {
+		if currentTypeID == ptrTypeID {
+			return reflect.ValueOf(generic.PtrOf(convertedValue)), nil
+		}
+		if reflectType == nil {
+			return reflect.Value{}, fmt.Errorf("reflect type is nil")
+		}
+		return reflect.ValueOf(generic.PtrOf(convertedValue)).Convert(*reflectType), nil
+	}
+	if currentTypeID == nonPtrTypeID {
+		return reflect.ValueOf(convertedValue), nil
+	}
+	if reflectType == nil {
+		return reflect.Value{}, fmt.Errorf("reflect type is nil")
+	}
+	return reflect.ValueOf(convertedValue).Convert(*reflectType), nil
 }
 
 // checkAndExtractToSliceIndex extracts and validates the slice index from the path

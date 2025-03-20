@@ -205,7 +205,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 		Branches: []*WorkflowBranchDSL{
 			{
 				Key: "branch",
-				BranchDSL: &BranchDSL{
+				BranchDSL: BranchDSL{
 					Condition: "condition",
 					EndNodes: []string{
 						"lambda3",

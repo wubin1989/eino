@@ -178,7 +178,7 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 }
 
 func workflowAddBranch(_ context.Context, wf *Workflow[any, any], dsl *WorkflowBranchDSL) error {
-	branch, inputType, err := genBranch(dsl.BranchDSL)
+	branch, inputType, err := genBranch(&dsl.BranchDSL)
 	if err != nil {
 		return err
 	}
