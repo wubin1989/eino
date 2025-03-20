@@ -62,14 +62,27 @@ func NewWorkflowFromDSL(ctx context.Context, dsl *WorkflowDSL) (*Workflow[any, a
 	return wf, nil
 }
 
-func CompileWorkflow(ctx context.Context, dsl *WorkflowDSL) (Runnable[any, any], error) {
+func CompileWorkflow(ctx context.Context, dsl *WorkflowDSL) (*DSLRunner, error) {
 	wf, err := NewWorkflowFromDSL(ctx, dsl)
 	if err != nil {
 		return nil, err
 	}
 
 	compileOptions := genWorkflowCompileOptions(dsl)
-	return wf.Compile(ctx, compileOptions...)
+	r, err := wf.Compile(ctx, compileOptions...)
+	if err != nil {
+		return nil, err
+	}
+
+	inputType, ok := typeMap[dsl.InputType]
+	if !ok {
+		return nil, fmt.Errorf("type not found: %v", dsl.InputType)
+	}
+
+	return &DSLRunner{
+		Runnable:  r,
+		InputType: inputType,
+	}, nil
 }
 
 func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *WorkflowNodeDSL) error {

@@ -14,15 +14,12 @@ type GraphDSL struct {
 	Namespace       string            `json:"namespace"`
 	Name            *string           `json:"name,omitempty"`
 	InputType       TypeID            `json:"input_type"`
-	OutputType      TypeID            `json:"output_type"`
 	StateType       *TypeID           `json:"state_type,omitempty"`
 	NodeTriggerMode *NodeTriggerMode  `json:"node_trigger_mode,omitempty"`
 	MaxRunStep      *int              `json:"max_run_step,omitempty"`
 	Nodes           []*NodeDSL        `json:"nodes,omitempty"`
 	Edges           []*EdgeDSL        `json:"edges,omitempty"`
 	Branches        []*GraphBranchDSL `json:"branches,omitempty"`
-
-	Input string `json:"input"`
 }
 
 type WorkflowDSL struct {
@@ -36,8 +33,6 @@ type WorkflowDSL struct {
 	Branches        []*WorkflowBranchDSL    `json:"branches,omitempty"`
 	EndInputs       []*WorkflowNodeInputDSL `json:"end_inputs,omitempty"`
 	EndDependencies []string                `json:"end_dependencies,omitempty"`
-
-	Input string `json:"input"`
 }
 
 type BasicType string

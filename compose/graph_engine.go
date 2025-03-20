@@ -44,7 +44,12 @@ func NewGraphFromDSL(ctx context.Context, dsl *GraphDSL) (*Graph[any, any], erro
 	return g, nil
 }
 
-func CompileGraph(ctx context.Context, dsl *GraphDSL) (Runnable[any, any], error) {
+type DSLRunner struct {
+	Runnable[any, any]
+	InputType *TypeMeta
+}
+
+func CompileGraph(ctx context.Context, dsl *GraphDSL) (*DSLRunner, error) {
 	g, err := NewGraphFromDSL(ctx, dsl)
 	if err != nil {
 		return nil, err
@@ -52,30 +57,52 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (Runnable[any, any], error
 
 	compileOptions := genGraphCompileOptions(dsl)
 
-	return g.Compile(ctx, compileOptions...)
-}
-
-func RunGraphWithInvoke(ctx context.Context, r Runnable[any, any], inType TypeID, in string, opts ...Option) (any, error) {
-	inputType, ok := typeMap[inType]
-	if !ok {
-		return nil, fmt.Errorf("type not found: %v", inType)
-	}
-
-	v, err := inputType.Instantiate(ctx, &in, nil, nil)
+	r, err := g.Compile(ctx, compileOptions...)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.Invoke(ctx, v.Interface(), opts...)
-}
-
-func RunGraphWithTransform(ctx context.Context, r Runnable[any, any], inType TypeID, in string, opts ...Option) (*schema.StreamReader[any], error) {
-	inputType, ok := typeMap[inType]
+	inputType, ok := typeMap[dsl.InputType]
 	if !ok {
-		return nil, fmt.Errorf("type not found: %v", inType)
+		return nil, fmt.Errorf("type not found: %v", dsl.InputType)
 	}
 
-	v, err := inputType.Instantiate(ctx, &in, nil, nil)
+	return &DSLRunner{
+		Runnable:  r,
+		InputType: inputType,
+	}, nil
+}
+
+func (d *DSLRunner) Invoke(ctx context.Context, in string, opts ...Option) (any, error) {
+	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return d.Runnable.Invoke(ctx, v.Interface(), opts...)
+}
+
+func (d *DSLRunner) Stream(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
+	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return d.Runnable.Stream(ctx, v.Interface(), opts...)
+}
+
+func (d *DSLRunner) Collect(ctx context.Context, in string, opts ...Option) (any, error) {
+	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	sr, sw := schema.Pipe[any](1)
+	sw.Send(v.Interface(), nil)
+	sw.Close()
+	return d.Runnable.Collect(ctx, sr, opts...)
+}
+
+func (d *DSLRunner) Transform(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
+	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +110,7 @@ func RunGraphWithTransform(ctx context.Context, r Runnable[any, any], inType Typ
 	sr, sw := schema.Pipe[any](1)
 	sw.Send(v.Interface(), nil)
 	sw.Close()
-	return r.Transform(ctx, sr, opts...)
+	return d.Runnable.Transform(ctx, sr, opts...)
 }
 
 func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {

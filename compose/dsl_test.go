@@ -43,15 +43,13 @@ func TestGraphWithPassthrough(t *testing.T) {
 				To:   END,
 			},
 		},
-
-		Input: `{"1": "hello"}`,
 	}
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	assert.NoError(t, err)
 
-	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	out, err := c.Invoke(ctx, `{"1": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{"1": "hello"}, out)
 }
@@ -183,7 +181,6 @@ func TestGraphWithChatTemplate(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: `{"world": "awesome", "certain": "shy"}`,
 	}
 
 	ctx := context.Background()
@@ -191,7 +188,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	out, err := c.Invoke(ctx, `{"world": "awesome", "certain": "shy"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -258,14 +255,13 @@ func TestGraphWithRetriever(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: "hello",
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	out, err := c.Invoke(ctx, "hello")
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Document{
 		{
@@ -298,7 +294,6 @@ func TestDSLWithLambda(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: `{"role": "user", "content": "hello"}`,
 	}
 
 	ctx := context.Background()
@@ -306,7 +301,7 @@ func TestDSLWithLambda(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	out, err := c.Invoke(ctx, `{"role": "user", "content": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -386,7 +381,6 @@ func TestDSLWithBranch(t *testing.T) {
 				FromNode: START,
 			},
 		},
-		Input: `{"role": "assistant", "tool_calls": [{"id": "1"}]}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
@@ -403,7 +397,7 @@ func TestDSLWithBranch(t *testing.T) {
 		}
 		return ctx
 	}).Build()
-	sr, err := RunGraphWithTransform(context.Background(), c, dsl.InputType, dsl.Input, WithCallbacks(cbHandler))
+	sr, err := c.Transform(context.Background(), `{"role": "assistant", "tool_calls": [{"id": "1"}]}`, WithCallbacks(cbHandler))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, lambda1Cnt)
 	assert.Equal(t, 0, lambda2Cnt)
@@ -508,14 +502,13 @@ func TestDSLWithStateHandlers(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: `{"role": "user", "content": "hello"}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	_, err = c.Invoke(ctx, `{"role": "user", "content": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -601,14 +594,13 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: `{"role": "user", "content": "hello"}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
+	_, err = c.Invoke(ctx, `{"role": "user", "content": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -660,7 +652,6 @@ func TestDSLWithSubGraph(t *testing.T) {
 				To:   END,
 			},
 		},
-		Input: `{"role": "user", "content": "hello"}`,
 	}
 
 	ctx := context.Background()
@@ -668,7 +659,7 @@ func TestDSLWithSubGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := RunGraphWithInvoke(ctx, c, parentGraphDSL.InputType, parentGraphDSL.Input)
+	out, err := c.Invoke(ctx, `{"role": "user", "content": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{

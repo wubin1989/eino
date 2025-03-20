@@ -248,17 +248,13 @@ func TestWorkflowFromDSL(t *testing.T) {
 	ctx := context.Background()
 	r, err := CompileWorkflow(ctx, dsl)
 	assert.NoError(t, err)
-	out, err := r.Invoke(ctx, map[string]any{
-		START: "hello",
-	})
+	out, err := r.Invoke(ctx, `{"start": "hello"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{
 		"lambda4": "4",
 	}, out)
 
-	out, err = r.Invoke(ctx, map[string]any{
-		START: "hello1",
-	})
+	out, err = r.Invoke(ctx, `{"start": "hello1"}`)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{
 		"lambda3":      "3",
