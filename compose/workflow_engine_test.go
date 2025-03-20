@@ -2,12 +2,14 @@ package compose
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cloudwego/eino/internal/generic"
+	"github.com/cloudwego/eino/schema"
 )
 
 func TestWorkflowFromDSL(t *testing.T) {
@@ -61,19 +63,37 @@ func TestWorkflowFromDSL(t *testing.T) {
 		Lambda:        func() *Lambda { return InvokableLambda(lambda5) },
 	}
 
-	condition := func(ctx context.Context, in map[string]any) (string, error) {
-		if in[START] == "hello" {
-			return "lambda4", nil
+	condition := func(ctx context.Context, in *schema.StreamReader[map[string]any]) (string, error) {
+		defer in.Close()
+
+		for {
+			chunk, err := in.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return "", err
+			}
+
+			startValue, ok := chunk[START]
+			if ok {
+				if startValue == "hello" {
+					return "lambda4", nil
+				} else {
+					return "lambda3", nil
+				}
+			}
 		}
 
 		return "lambda3", nil
 	}
 
 	branchFunctionMap["condition"] = &BranchFunction{
-		ID:        "condition",
-		FuncValue: reflect.ValueOf(condition),
-		InputType: reflect.TypeOf(map[string]any{}),
-		IsStream:  false,
+		ID:              "condition",
+		FuncValue:       reflect.ValueOf(condition),
+		InputType:       reflect.TypeOf(map[string]any{}),
+		IsStream:        true,
+		StreamConverter: &StreamConverterImpl[map[string]any]{},
 	}
 
 	defer func() {
@@ -254,8 +274,11 @@ func TestWorkflowFromDSL(t *testing.T) {
 		"lambda4": "4",
 	}, out)
 
-	out, err = r.Invoke(ctx, `{"start": "hello1"}`)
+	outS, err := r.Transform(ctx, `{"start": "hello1"}`)
 	assert.NoError(t, err)
+	out, err = outS.Recv()
+	assert.NoError(t, err)
+	outS.Close()
 	assert.Equal(t, map[string]any{
 		"lambda3":      "3",
 		"static_value": "static_value",

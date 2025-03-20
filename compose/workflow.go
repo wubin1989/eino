@@ -18,7 +18,6 @@ package compose
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -29,6 +28,7 @@ import (
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/internal/generic"
+	"github.com/cloudwego/eino/schema"
 )
 
 // WorkflowNode is the node of the Workflow.
@@ -551,26 +551,39 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 	}
 
 	for _, n := range wf.workflowNodes {
-		const valueProviderSuffix = "\x1Fvalue\x1Fprovider"
 		if len(n.staticValues) > 0 {
-			provider := wf.AddLambdaNode(fmt.Sprintf("%s%s", n.key, valueProviderSuffix), valueProvider(n.staticValues)).AddInput(START)
-			fieldMappings := make([]*FieldMapping, 0, len(n.staticValues))
-			for path := range n.staticValues {
-				fieldPath := splitFieldPath(path)
-				fieldMappings = append(fieldMappings, MapFieldPaths(fieldPath, fieldPath))
+			value := make(map[FieldMapping]any, len(n.staticValues))
+			for path, v := range n.staticValues {
+				value[FieldMapping{
+					to: path,
+				}] = v
 			}
 
-			if wf.controlledByBranch(n.key) {
-				n.AddInputWithOptions(provider.key, fieldMappings, WithNoDirectDependency())
+			pair := handlerPair{
+				invoke: func(in any) (any, error) {
+					values := []any{in, value}
+					return mergeValues(values)
+				},
+				transform: func(in streamReader) streamReader {
+					s, ok := unpackStreamReader[map[FieldMapping]any](in)
+					if !ok {
+						panic("static value setter incoming streamReader chunk type not map[FieldMapping]any")
+					}
+
+					sr, sw := schema.Pipe[map[FieldMapping]any](1)
+					sw.Send(value, nil)
+					sw.Close()
+
+					newS := schema.MergeStreamReaders([]*schema.StreamReader[map[FieldMapping]any]{s, sr})
+
+					return packStreamReader(newS)
+				},
+			}
+
+			if _, ok := wf.g.handlerPreNode[n.key]; !ok {
+				wf.g.handlerPreNode[n.key] = []handlerPair{pair}
 			} else {
-				n.AddInput(provider.key, fieldMappings...)
-			}
-
-			for _, addInput := range provider.addInputs {
-				addInput()
-			}
-			for _, addInput := range n.addInputs {
-				addInput()
+				wf.g.handlerPreNode[n.key] = append([]handlerPair{pair}, wf.g.handlerPreNode[n.key]...)
 			}
 		}
 	}
@@ -621,11 +634,11 @@ func (wf *Workflow[I, O]) component() component {
 	return wf.g.component()
 }
 
-func valueProvider(prefilledValues map[string]any) *Lambda {
+/*func valueProvider(prefilledValues map[string]any) *Lambda {
 	i := func(ctx context.Context, _ any, opts ...any) (map[string]any, error) {
 		return prefilledValues, nil
 
 	}
 
 	return anyLambda(i, nil, nil, nil)
-}
+}*/
