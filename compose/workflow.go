@@ -410,6 +410,10 @@ func (wf *Workflow[I, O]) addEndDependencyRelation(fromNodeKey string, inputs []
 }
 
 func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOptions) (*composableRunnable, error) {
+	if wf.g.buildError != nil {
+		return nil, wf.g.buildError
+	}
+
 	for _, n := range wf.workflowNodes {
 		const valueProviderSuffix = "\x1Fvalue\x1Fprovider"
 		if len(n.staticValues) > 0 {

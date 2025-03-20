@@ -9,21 +9,21 @@ import (
 )
 
 type GraphDSL struct {
-	ID              string           `json:"id"`
-	Namespace       string           `json:"namespace"`
-	Name            *string          `json:"name,omitempty"`
-	StateType       *TypeID          `json:"state_type,omitempty"`
-	NodeTriggerMode *NodeTriggerMode `json:"node_trigger_mode,omitempty"`
-	MaxRunStep      *int             `json:"max_run_step,omitempty"`
-	Nodes           []*NodeDSL       `json:"nodes,omitempty"`
-	Edges           []*EdgeDSL       `json:"edges,omitempty"`
-	Branches        []*BranchDSL     `json:"branches,omitempty"`
+	ID              string            `json:"id"`
+	Namespace       string            `json:"namespace"`
+	Name            *string           `json:"name,omitempty"`
+	StateType       *TypeID           `json:"state_type,omitempty"`
+	NodeTriggerMode *NodeTriggerMode  `json:"node_trigger_mode,omitempty"`
+	MaxRunStep      *int              `json:"max_run_step,omitempty"`
+	Nodes           []*NodeDSL        `json:"nodes,omitempty"`
+	Edges           []*EdgeDSL        `json:"edges,omitempty"`
+	Branches        []*GraphBranchDSL `json:"branches,omitempty"`
 }
 
 type WorkflowDSL struct {
 	ID              string                  `json:"id"`
 	Namespace       string                  `json:"namespace"`
-	Name            string                  `json:"name"`
+	Name            *string                 `json:"name"`
 	StateType       *TypeID                 `json:"state_type,omitempty"`
 	Nodes           []*WorkflowNodeDSL      `json:"nodes,omitempty"`
 	Branches        []*WorkflowBranchDSL    `json:"branches,omitempty"`
@@ -130,6 +130,7 @@ type NodeDSL struct {
 	InputKey               *string         `json:"input_key,omitempty"`
 	OutputKey              *string         `json:"output_key,omitempty"`
 	GraphDSL               *GraphDSL       `json:"graph_dsl,omitempty"`
+	WorkflowDSL            *WorkflowDSL    `json:"workflow_dsl,omitempty"`
 	StatePreHandler        *StateHandlerID `json:"state_pre_handler,omitempty"`
 	StatePostHandler       *StateHandlerID `json:"state_post_handler,omitempty"`
 	StreamStatePreHandler  *StateHandlerID `json:"stream_state_pre_handler,omitempty"`
@@ -159,7 +160,6 @@ type EdgeDSL struct {
 
 type BranchDSL struct {
 	Condition BranchFunctionID
-	FromNodes []string
 	EndNodes  []string
 }
 
@@ -173,6 +173,11 @@ type BranchFunction struct {
 	StreamConverter StreamConverter
 }
 
+type GraphBranchDSL struct {
+	*BranchDSL `json:"branch"`
+	FromNode   string `json:"from_node"`
+}
+
 type StateHandlerID string
 type StateHandler struct {
 	ID              StateHandlerID
@@ -184,23 +189,32 @@ type StateHandler struct {
 }
 
 type WorkflowNodeDSL struct {
-	NodeDSL
+	*NodeDSL     `json:"node"`
 	Inputs       []*WorkflowNodeInputDSL `json:"inputs,omitempty"`
 	Dependencies []string                `json:"dependencies,omitempty"`
+	StaticValues []StaticValue           `json:"static_value,omitempty"`
+}
+
+type StaticValue struct {
+	TypeID TypeID    `json:"type_id"`
+	Path   FieldPath `json:"path"`
+	Value  string    `json:"value"`
 }
 
 type WorkflowNodeInputDSL struct {
-	FromNodeKey        string   `json:"from_node_key"`
-	FromField          string   `json:"from_field,omitempty"`
-	ToField            string   `json:"to_field,omitempty"`
-	FromFieldPath      []string `json:"from_field_path,omitempty"`
-	ToFieldPath        []string `json:"to_field_path,omitempty"`
-	NoDirectDependency bool     `json:"no_direct_dependency,omitempty"`
+	FromNodeKey        string             `json:"from_node_key"`
+	FieldPathMappings  []FieldPathMapping `json:"field_mappings,omitempty"`
+	NoDirectDependency bool               `json:"no_direct_dependency,omitempty"`
+}
+
+type FieldPathMapping struct {
+	From FieldPath `json:"from"`
+	To   FieldPath `json:"to"`
 }
 
 type WorkflowBranchDSL struct {
-	Key string `json:"key"`
-	*BranchDSL
+	Key          string `json:"key"`
+	*BranchDSL   `json:"branch"`
 	Inputs       []*WorkflowNodeInputDSL `json:"inputs,omitempty"`
 	Dependencies []string                `json:"dependencies,omitempty"`
 }

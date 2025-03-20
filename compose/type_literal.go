@@ -39,6 +39,11 @@ var comp2AddFn = map[components.Component]reflect.Value{
 	components.ComponentOfRetriever: reflect.ValueOf((*graph).AddRetrieverNode),
 }
 
+var comp2WorkflowAddFn = map[components.Component]reflect.Value{
+	components.ComponentOfPrompt:    reflect.ValueOf((*Workflow[any, any]).AddChatTemplateNode),
+	components.ComponentOfRetriever: reflect.ValueOf((*Workflow[any, any]).AddRetrieverNode),
+}
+
 var typeMap = map[TypeID]*TypeMeta{
 	"string": {
 		ID:                "string",

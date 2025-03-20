@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,7 @@ func TestGraphWithPassthrough(t *testing.T) {
 	c, err := CompileGraph(ctx, dsl)
 	assert.NoError(t, err)
 
-	out, err := InvokeCompiledGraph[map[string]any, map[string]any](ctx, c, map[string]any{"1": "hello"})
+	out, err := invokeCompiledGraph[map[string]any, map[string]any](ctx, c, map[string]any{"1": "hello"})
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{"1": "hello"}, out)
 }
@@ -187,7 +188,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := InvokeCompiledGraph[map[string]any, []*schema.Message](ctx, c, map[string]any{"world": "awesome", "certain": "shy"})
+	out, err := invokeCompiledGraph[map[string]any, []*schema.Message](ctx, c, map[string]any{"world": "awesome", "certain": "shy"})
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -259,7 +260,7 @@ func TestGraphWithRetriever(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := InvokeCompiledGraph[string, []*schema.Document](ctx, c, "hello")
+	out, err := invokeCompiledGraph[string, []*schema.Document](ctx, c, "hello")
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Document{
 		{
@@ -298,7 +299,7 @@ func TestDSLWithLambda(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, &schema.Message{Role: schema.User, Content: "hello"})
+	out, err := invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, &schema.Message{Role: schema.User, Content: "hello"})
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -368,11 +369,13 @@ func TestDSLWithBranch(t *testing.T) {
 				To:   END,
 			},
 		},
-		Branches: []*BranchDSL{
+		Branches: []*GraphBranchDSL{
 			{
-				Condition: "firstChunkStreamToolCallChecker",
-				FromNodes: []string{START},
-				EndNodes:  []string{"1", "2"},
+				BranchDSL: &BranchDSL{
+					Condition: "firstChunkStreamToolCallChecker",
+					EndNodes:  []string{"1", "2"},
+				},
+				FromNode: START,
 			},
 		},
 	}
@@ -397,7 +400,7 @@ func TestDSLWithBranch(t *testing.T) {
 		}
 		return ctx
 	}).Build()
-	sr, err = c.run.Transform(context.Background(), sr, WithCallbacks(cbHandler))
+	sr, err = c.Transform(context.Background(), sr, WithCallbacks(cbHandler))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, lambda1Cnt)
 	assert.Equal(t, 0, lambda2Cnt)
@@ -507,7 +510,7 @@ func TestDSLWithStateHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	_, err = invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -598,7 +601,7 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	_, err = invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -656,7 +659,7 @@ func TestDSLWithSubGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := InvokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	out, err := invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -761,4 +764,20 @@ var testEmbeddingConfigType = &TypeMeta{
 var testRetrieverImpl = &ImplMeta{
 	TypeID:        "testRetriever",
 	ComponentType: components.ComponentOfRetriever,
+}
+
+func invokeCompiledGraph[In, Out any](ctx context.Context, g Runnable[any, any], input In, opts ...Option) (Out, error) {
+	result, err := g.Invoke(ctx, input, opts...)
+	if err != nil {
+		var zero Out
+		return zero, err
+	}
+
+	// Type assertion for the output
+	out, ok := result.(Out)
+	if !ok {
+		return *new(Out), fmt.Errorf("failed to convert output to type %T", *new(Out))
+	}
+
+	return out, nil
 }

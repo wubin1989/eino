@@ -1,263 +1,258 @@
 package compose
 
 import (
+	"context"
 	"fmt"
 	"reflect"
-	"strconv"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/cloudwego/eino/internal/generic"
 )
 
-func TestAssignSlot(t *testing.T) {
-	type Nested struct {
-		Value string
-		Ptr   *string
+func TestWorkflowFromDSL(t *testing.T) {
+	lambda1 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		in["lambda1"] = "1"
+		return in, nil
 	}
 
-	type TestStruct struct {
-		String       string
-		StringPtr    *string
-		Slice        []string
-		SlicePtr     []*string
-		Map          map[string]string
-		MapPtr       map[string]*string
-		Nested       Nested
-		NestedPtr    *Nested
-		StructMap    map[string]Nested
-		PtrMap       map[string]*Nested
-		SliceNest    []Nested
-		SlicePtrNest []*Nested
+	lambda2 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		in["lambda2"] = "2"
+		return in, nil
 	}
 
-	tests := []struct {
-		name    string
-		target  interface{}
-		path    FieldPath
-		value   interface{}
-		wantErr bool
-	}{
-		{
-			name:    "simple string field",
-			target:  &TestStruct{},
-			path:    FieldPath{"String"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "string pointer field",
-			target:  &TestStruct{},
-			path:    FieldPath{"StringPtr"},
-			value:   new(string),
-			wantErr: false,
-		},
-		{
-			name:    "slice index",
-			target:  &TestStruct{},
-			path:    FieldPath{"Slice", "[0]"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "slice pointer index",
-			target:  &TestStruct{},
-			path:    FieldPath{"SlicePtr", "[0]"},
-			value:   generic.PtrOf("test"),
-			wantErr: false,
-		},
-		{
-			name:    "map field",
-			target:  &TestStruct{},
-			path:    FieldPath{"Map", "key"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "map pointer field",
-			target:  &TestStruct{},
-			path:    FieldPath{"MapPtr", "key"},
-			value:   generic.PtrOf("test"),
-			wantErr: false,
-		},
-		{
-			name:    "nested struct field",
-			target:  &TestStruct{},
-			path:    FieldPath{"Nested", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "nested pointer struct field",
-			target:  &TestStruct{},
-			path:    FieldPath{"NestedPtr", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "map of structs",
-			target:  &TestStruct{},
-			path:    FieldPath{"StructMap", "key", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "map of struct pointers",
-			target:  &TestStruct{},
-			path:    FieldPath{"PtrMap", "key", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "slice of structs",
-			target:  &TestStruct{},
-			path:    FieldPath{"SliceNest", "[0]", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:    "slice of struct pointers",
-			target:  &TestStruct{},
-			path:    FieldPath{"SlicePtrNest", "[0]", "Value"},
-			value:   "test",
-			wantErr: false,
-		},
-		{
-			name:   "top level slice",
-			target: []Nested{},
-			path:   FieldPath{"[1]"},
-			value: Nested{
-				Value: "test",
+	lambda3 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		in["lambda3"] = "3"
+		return in, nil
+	}
+
+	lambda4 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		in["lambda4"] = "4"
+		return in, nil
+	}
+
+	lambda5 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
+		in["lambda5"] = "5"
+		return in, nil
+	}
+
+	implMap["lambda1"] = &ImplMeta{
+		ComponentType: ComponentOfLambda,
+		Lambda:        func() *Lambda { return InvokableLambda(lambda1) },
+	}
+
+	implMap["lambda2"] = &ImplMeta{
+		ComponentType: ComponentOfLambda,
+		Lambda:        func() *Lambda { return InvokableLambda(lambda2) },
+	}
+
+	implMap["lambda3"] = &ImplMeta{
+		ComponentType: ComponentOfLambda,
+		Lambda:        func() *Lambda { return InvokableLambda(lambda3) },
+	}
+
+	implMap["lambda4"] = &ImplMeta{
+		ComponentType: ComponentOfLambda,
+		Lambda:        func() *Lambda { return InvokableLambda(lambda4) },
+	}
+
+	implMap["lambda5"] = &ImplMeta{
+		ComponentType: ComponentOfLambda,
+		Lambda:        func() *Lambda { return InvokableLambda(lambda5) },
+	}
+
+	condition := func(ctx context.Context, in map[string]any) (string, error) {
+		lambda1, ok := in["lambda1"]
+		if !ok {
+			return "lambda3", nil
+		}
+
+		lambda2, ok := in["lambda2"]
+		if !ok {
+			return "lambda4", nil
+		}
+
+		if len(fmt.Sprintf("%v", lambda1)) > len(fmt.Sprintf("%v", lambda2)) {
+			return "lambda3", nil
+		}
+
+		return "lambda4", nil
+	}
+
+	branchFunctionMap["condition"] = &BranchFunction{
+		ID:        "condition",
+		FuncValue: reflect.ValueOf(condition),
+		InputType: reflect.TypeOf(map[string]any{}),
+		IsStream:  false,
+	}
+
+	defer func() {
+		delete(implMap, "lambda1")
+		delete(implMap, "lambda2")
+		delete(implMap, "lambda3")
+		delete(implMap, "lambda4")
+		delete(implMap, "lambda5")
+		delete(branchFunctionMap, "condition")
+	}()
+
+	dsl := &WorkflowDSL{
+		ID:        "test",
+		Namespace: "test",
+		Name:      generic.PtrOf("test_workflow"),
+		Nodes: []*WorkflowNodeDSL{
+			{
+				NodeDSL: &NodeDSL{
+					Key:    "lambda1",
+					ImplID: "lambda1",
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: START,
+					},
+				},
 			},
-			wantErr: false,
+			{
+				NodeDSL: &NodeDSL{
+					Key:    "lambda2",
+					ImplID: "lambda2",
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: START,
+					},
+				},
+			},
+			{
+				NodeDSL: &NodeDSL{
+					Key:    "lambda3",
+					ImplID: "lambda3",
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: "lambda1",
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{"lambda1"},
+								To:   FieldPath{"lambda1"},
+							},
+						},
+						NoDirectDependency: true,
+					},
+				},
+			},
+			{
+				NodeDSL: &NodeDSL{
+					Key:    "lambda4",
+					ImplID: "lambda4",
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: "lambda2",
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{"lambda2"},
+								To:   FieldPath{"lambda2"},
+							},
+						},
+						NoDirectDependency: true,
+					},
+				},
+			},
+			{
+				NodeDSL: &NodeDSL{
+					Key:    "lambda5",
+					ImplID: "lambda5",
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: "lambda1",
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{"lambda1"},
+								To:   FieldPath{"lambda1"},
+							},
+						},
+						NoDirectDependency: true,
+					},
+				},
+				Dependencies: []string{
+					"lambda3",
+				},
+			},
 		},
-		// Error cases
-		{
-			name:    "empty path",
-			target:  &TestStruct{},
-			path:    FieldPath{},
-			value:   "test",
-			wantErr: true,
+		Branches: []*WorkflowBranchDSL{
+			{
+				Key: "branch",
+				BranchDSL: &BranchDSL{
+					Condition: "condition",
+					EndNodes: []string{
+						"lambda3",
+						"lambda4",
+					},
+				},
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: "lambda1",
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{"lambda1"},
+								To:   FieldPath{"lambda1"},
+							},
+						},
+					},
+					{
+						FromNodeKey: START,
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{START},
+								To:   FieldPath{START},
+							},
+						},
+						NoDirectDependency: true,
+					},
+				},
+				Dependencies: []string{
+					"lambda2",
+				},
+			},
 		},
-		{
-			name:    "invalid path",
-			target:  &TestStruct{},
-			path:    FieldPath{"InvalidField"},
-			value:   "test",
-			wantErr: true,
+		EndInputs: []*WorkflowNodeInputDSL{
+			{
+				FromNodeKey: "lambda5",
+				FieldPathMappings: []FieldPathMapping{
+					{
+						From: FieldPath{"lambda5"},
+						To:   FieldPath{"lambda5"},
+					},
+				},
+			},
+			{
+				FromNodeKey: "lambda3",
+				FieldPathMappings: []FieldPathMapping{
+					{
+						From: FieldPath{"lambda3"},
+						To:   FieldPath{"lambda3"},
+					},
+				},
+				NoDirectDependency: true,
+			},
 		},
-		{
-			name:    "invalid array index",
-			target:  &TestStruct{},
-			path:    FieldPath{"Slice", "[invalid]"},
-			value:   "test",
-			wantErr: true,
-		},
-		{
-			name:    "path to non-struct",
-			target:  &TestStruct{},
-			path:    FieldPath{"String.Invalid"},
-			value:   "test",
-			wantErr: true,
+		EndDependencies: []string{
+			"lambda4",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			targetValue := newInstanceByType(reflect.TypeOf(tt.target))
-
-			_, err := assignSlot(targetValue, tt.value, tt.path)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("assignSlot() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr {
-				// Verify the value was set correctly
-				got, err := getValueByPath(targetValue, tt.path)
-				if err != nil {
-					t.Errorf("Failed to get value after setting: %v", err)
-					return
-				}
-
-				gotInter := got.Interface()
-
-				if !reflect.DeepEqual(gotInter, tt.value) {
-					t.Errorf("Value not set correctly. got = %v, want = %v", gotInter, tt.value)
-				}
-			}
-		})
+	ctx := context.Background()
+	r, err := CompileWorkflow(ctx, dsl)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-// Helper function to get value by path for verification
-func getValueByPath(v reflect.Value, segments FieldPath) (reflect.Value, error) {
-	current := v
-
-	for _, segment := range segments {
-		// Dereference pointers until we get to the actual value
-		for current.Kind() == reflect.Ptr {
-			if current.IsNil() {
-				return reflect.Value{}, fmt.Errorf("nil pointer encountered")
-			}
-			current = current.Elem()
-		}
-
-		if idx := strings.Index(segment, "["); idx != -1 {
-			field := segment[:idx]
-			if field != "" {
-				if current.Kind() != reflect.Struct && current.Kind() != reflect.Map {
-					return reflect.Value{}, fmt.Errorf("expected struct or map at %s, got %v", field, current.Kind())
-				}
-
-				if current.Kind() == reflect.Map {
-					current = current.MapIndex(reflect.ValueOf(field))
-					if !current.IsValid() {
-						return reflect.Value{}, fmt.Errorf("key not found in map: %s", field)
-					}
-					// Always dereference pointers when reading
-					for current.Kind() == reflect.Ptr && !current.IsNil() {
-						current = current.Elem()
-					}
-				} else {
-					current = current.FieldByName(field)
-					if !current.IsValid() {
-						return reflect.Value{}, fmt.Errorf("field not found: %s", field)
-					}
-				}
-			}
-
-			idxStr := segment[idx+1 : len(segment)-1]
-			index, err := strconv.Atoi(idxStr)
-			if err != nil {
-				return reflect.Value{}, fmt.Errorf("invalid array index: %v", err)
-			}
-
-			if current.Kind() != reflect.Slice && current.Kind() != reflect.Array {
-				return reflect.Value{}, fmt.Errorf("expected slice or array at %s, got %v", segment, current.Kind())
-			}
-			if index >= current.Len() {
-				return reflect.Value{}, fmt.Errorf("index out of range: %d", index)
-			}
-			current = current.Index(index)
-			continue
-		}
-
-		if current.Kind() == reflect.Map {
-			current = current.MapIndex(reflect.ValueOf(segment))
-			if !current.IsValid() {
-				return reflect.Value{}, fmt.Errorf("key not found in map: %s", segment)
-			}
-		} else if current.Kind() == reflect.Struct {
-			current = current.FieldByName(segment)
-			if !current.IsValid() {
-				return reflect.Value{}, fmt.Errorf("field not found: %s", segment)
-			}
-		} else {
-			return reflect.Value{}, fmt.Errorf("expected struct or map at %s, got %v", segment, current.Kind())
-		}
+	out, err := r.Invoke(ctx, map[string]any{
+		START: "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	return current, nil
+	assert.Equal(t, "hello", out)
 }
