@@ -3,7 +3,6 @@ package compose
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -25,6 +24,7 @@ func TestGraphWithPassthrough(t *testing.T) {
 		ID:        "test",
 		Namespace: "test",
 		Name:      generic.PtrOf("test_passthrough"),
+		InputType: "map[string]any",
 		Nodes: []*NodeDSL{
 			{
 				Key:       "1",
@@ -43,13 +43,15 @@ func TestGraphWithPassthrough(t *testing.T) {
 				To:   END,
 			},
 		},
+
+		Input: `{"1": "hello"}`,
 	}
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	assert.NoError(t, err)
 
-	out, err := invokeCompiledGraph[map[string]any, map[string]any](ctx, c, map[string]any{"1": "hello"})
+	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]any{"1": "hello"}, out)
 }
@@ -123,6 +125,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_chat_template"),
+		InputType:       "map[string]any",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		Nodes: []*NodeDSL{
 			{
@@ -180,6 +183,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: `{"world": "awesome", "certain": "shy"}`,
 	}
 
 	ctx := context.Background()
@@ -187,7 +191,7 @@ func TestGraphWithChatTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := invokeCompiledGraph[map[string]any, []*schema.Message](ctx, c, map[string]any{"world": "awesome", "certain": "shy"})
+	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -219,6 +223,7 @@ func TestGraphWithRetriever(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_retriever"),
+		InputType:       "string",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		Nodes: []*NodeDSL{
 			{
@@ -253,13 +258,14 @@ func TestGraphWithRetriever(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: "hello",
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := invokeCompiledGraph[string, []*schema.Document](ctx, c, "hello")
+	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Document{
 		{
@@ -274,6 +280,7 @@ func TestDSLWithLambda(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_lambda"),
+		InputType:       "*schema.Message",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		Nodes: []*NodeDSL{
 			{
@@ -291,6 +298,7 @@ func TestDSLWithLambda(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: `{"role": "user", "content": "hello"}`,
 	}
 
 	ctx := context.Background()
@@ -298,7 +306,7 @@ func TestDSLWithLambda(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, &schema.Message{Role: schema.User, Content: "hello"})
+	out, err := RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -345,6 +353,7 @@ func TestDSLWithBranch(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_branch"),
+		InputType:       "*schema.Message",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		Nodes: []*NodeDSL{
 			{
@@ -377,6 +386,7 @@ func TestDSLWithBranch(t *testing.T) {
 				FromNode: START,
 			},
 		},
+		Input: `{"role": "assistant", "tool_calls": [{"id": "1"}]}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
@@ -384,12 +394,6 @@ func TestDSLWithBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	msg := schema.AssistantMessage("", []schema.ToolCall{{ID: "1"}})
-	sr, sw := schema.Pipe[any](0)
-	go func() {
-		sw.Send(msg, nil)
-		sw.Close()
-	}()
 	var lambda1Cnt, lambda2Cnt int
 	cbHandler := callbacks.NewHandlerBuilder().OnStartWithStreamInputFn(func(ctx context.Context, info *callbacks.RunInfo, input *schema.StreamReader[callbacks.CallbackInput]) context.Context {
 		if info.Name == "1" {
@@ -399,7 +403,7 @@ func TestDSLWithBranch(t *testing.T) {
 		}
 		return ctx
 	}).Build()
-	sr, err = c.Transform(context.Background(), sr, WithCallbacks(cbHandler))
+	sr, err := RunGraphWithTransform(context.Background(), c, dsl.InputType, dsl.Input, WithCallbacks(cbHandler))
 	assert.NoError(t, err)
 	assert.Equal(t, 1, lambda1Cnt)
 	assert.Equal(t, 0, lambda2Cnt)
@@ -483,6 +487,7 @@ func TestDSLWithStateHandlers(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_state_handlers"),
+		InputType:       "*schema.Message",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		StateType:       (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
@@ -503,13 +508,14 @@ func TestDSLWithStateHandlers(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: `{"role": "user", "content": "hello"}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	_, err = RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -574,6 +580,7 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_state_handlers"),
+		InputType:       "*schema.Message",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		StateType:       (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
@@ -594,13 +601,14 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: `{"role": "user", "content": "hello"}`,
 	}
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	_, err = RunGraphWithInvoke(ctx, c, dsl.InputType, dsl.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, int32(1), globalPre.Load())
 	assert.Equal(t, int32(1), globalPost.Load())
@@ -634,6 +642,7 @@ func TestDSLWithSubGraph(t *testing.T) {
 		ID:              "test",
 		Namespace:       "test",
 		Name:            generic.PtrOf("test_parent_graph"),
+		InputType:       "*schema.Message",
 		NodeTriggerMode: generic.PtrOf(AllPredecessor),
 		Nodes: []*NodeDSL{
 			{
@@ -651,6 +660,7 @@ func TestDSLWithSubGraph(t *testing.T) {
 				To:   END,
 			},
 		},
+		Input: `{"role": "user", "content": "hello"}`,
 	}
 
 	ctx := context.Background()
@@ -658,7 +668,7 @@ func TestDSLWithSubGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := invokeCompiledGraph[*schema.Message, []*schema.Message](ctx, c, schema.UserMessage("hello"))
+	out, err := RunGraphWithInvoke(ctx, c, parentGraphDSL.InputType, parentGraphDSL.Input)
 	assert.NoError(t, err)
 	assert.Equal(t, []*schema.Message{
 		{
@@ -763,20 +773,4 @@ var testEmbeddingConfigType = &TypeMeta{
 var testRetrieverImpl = &ImplMeta{
 	TypeID:        "testRetriever",
 	ComponentType: components.ComponentOfRetriever,
-}
-
-func invokeCompiledGraph[In, Out any](ctx context.Context, g Runnable[any, any], input In, opts ...Option) (Out, error) {
-	result, err := g.Invoke(ctx, input, opts...)
-	if err != nil {
-		var zero Out
-		return zero, err
-	}
-
-	// Type assertion for the output
-	out, ok := result.(Out)
-	if !ok {
-		return *new(Out), fmt.Errorf("failed to convert output to type %T", *new(Out))
-	}
-
-	return out, nil
 }

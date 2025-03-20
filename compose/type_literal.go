@@ -126,9 +126,10 @@ var typeMap = map[TypeID]*TypeMeta{
 		BasicType: BasicTypeInterface,
 	},
 	"map[string]any": {
-		ID:          "map[string]any",
-		BasicType:   BasicTypeMap,
-		ReflectType: generic.PtrOf(reflect.TypeOf(map[string]any{})),
+		ID:                "map[string]any",
+		BasicType:         BasicTypeMap,
+		InstantiationType: InstantiationTypeUnmarshal,
+		ReflectType:       generic.PtrOf(reflect.TypeOf(map[string]any{})),
 	},
 }
 

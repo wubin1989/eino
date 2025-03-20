@@ -55,7 +55,7 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (Runnable[any, any], error
 	return g.Compile(ctx, compileOptions...)
 }
 
-func InvokeGraph(ctx context.Context, r Runnable[any, any], inType TypeID, in string) (any, error) {
+func RunGraphWithInvoke(ctx context.Context, r Runnable[any, any], inType TypeID, in string, opts ...Option) (any, error) {
 	inputType, ok := typeMap[inType]
 	if !ok {
 		return nil, fmt.Errorf("type not found: %v", inType)
@@ -66,7 +66,24 @@ func InvokeGraph(ctx context.Context, r Runnable[any, any], inType TypeID, in st
 		return nil, err
 	}
 
-	return r.Invoke(ctx, v.Interface())
+	return r.Invoke(ctx, v.Interface(), opts...)
+}
+
+func RunGraphWithTransform(ctx context.Context, r Runnable[any, any], inType TypeID, in string, opts ...Option) (*schema.StreamReader[any], error) {
+	inputType, ok := typeMap[inType]
+	if !ok {
+		return nil, fmt.Errorf("type not found: %v", inType)
+	}
+
+	v, err := inputType.Instantiate(ctx, &in, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	sr, sw := schema.Pipe[any](1)
+	sw.Send(v.Interface(), nil)
+	sw.Close()
+	return r.Transform(ctx, sr, opts...)
 }
 
 func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
