@@ -119,26 +119,26 @@ func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 		return err
 	}
 
-	if dsl.GraphDSL != nil {
-		subGraph, err := NewGraphFromDSL(ctx, dsl.GraphDSL)
+	if dsl.Graph != nil {
+		subGraph, err := NewGraphFromDSL(ctx, dsl.Graph)
 		if err != nil {
 			return err
 		}
 
-		compileOptions := genGraphCompileOptions(dsl.GraphDSL)
+		compileOptions := genGraphCompileOptions(dsl.Graph)
 
 		addNodeOpts = append(addNodeOpts, WithGraphCompileOptions(compileOptions...))
 
 		return g.AddGraphNode(dsl.Key, subGraph, addNodeOpts...)
 	}
 
-	if dsl.WorkflowDSL != nil {
-		subGraph, err := NewWorkflowFromDSL(ctx, dsl.WorkflowDSL)
+	if dsl.Workflow != nil {
+		subGraph, err := NewWorkflowFromDSL(ctx, dsl.Workflow)
 		if err != nil {
 			return err
 		}
 
-		compileOptions := genWorkflowCompileOptions(dsl.WorkflowDSL)
+		compileOptions := genWorkflowCompileOptions(dsl.Workflow)
 		addNodeOpts = append(addNodeOpts, WithGraphCompileOptions(compileOptions...))
 
 		return g.AddGraphNode(dsl.Key, subGraph, addNodeOpts...)
@@ -188,7 +188,7 @@ func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 }
 
 func graphAddBranch(_ context.Context, g *Graph[any, any], dsl *GraphBranchDSL) error {
-	branch, _, err := genBranch(dsl.BranchDSL)
+	branch, _, err := genBranch(&dsl.BranchDSL)
 	if err != nil {
 		return err
 	}
@@ -467,7 +467,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) 
 
 		// add a context parameter at the front if needed
 		first := fMeta.InputTypes[0]
-		if first == ctxType.ID {
+		if first == TypeIDCtx {
 			configs = append([]Config{
 				{
 					isCtx: true,
@@ -540,7 +540,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) 
 		return reflect.Value{}, fmt.Errorf("function return value length mismatch: given %d, defined %d", len(results), len(fMeta.OutputTypes))
 	}
 
-	if fMeta.OutputTypes[len(fMeta.OutputTypes)-1] == errType.ID {
+	if fMeta.OutputTypes[len(fMeta.OutputTypes)-1] == TypeIDError {
 		if results[len(results)-1].Interface() != nil {
 			return reflect.Value{}, results[len(results)-1].Interface().(error)
 		}

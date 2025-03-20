@@ -14,14 +14,6 @@ var passthrough = &ImplMeta{
 	ComponentType: ComponentOfPassthrough,
 }
 
-var ctxType = &TypeMeta{
-	ID: "Context",
-}
-
-var errType = &TypeMeta{
-	ID: "Error",
-}
-
 var implMap = map[string]*ImplMeta{
 	"Passthrough": passthrough,
 	"prompt.DefaultChatTemplate": {
@@ -32,16 +24,22 @@ var implMap = map[string]*ImplMeta{
 		ComponentType: ComponentOfLambda,
 		Lambda:        func() *Lambda { return ToList[*schema.Message]() },
 	},
+	"*compose.ToolsNode": {
+		TypeID:        "*compose.ToolsNode",
+		ComponentType: ComponentOfToolsNode,
+	},
 }
 
 var comp2AddFn = map[components.Component]reflect.Value{
 	components.ComponentOfPrompt:    reflect.ValueOf((*graph).AddChatTemplateNode),
 	components.ComponentOfRetriever: reflect.ValueOf((*graph).AddRetrieverNode),
+	ComponentOfToolsNode:            reflect.ValueOf((*graph).AddToolsNode),
 }
 
 var comp2WorkflowAddFn = map[components.Component]reflect.Value{
 	components.ComponentOfPrompt:    reflect.ValueOf((*Workflow[any, any]).AddChatTemplateNode),
 	components.ComponentOfRetriever: reflect.ValueOf((*Workflow[any, any]).AddRetrieverNode),
+	ComponentOfToolsNode:            reflect.ValueOf((*Workflow[any, any]).AddToolsNode),
 }
 
 const (
@@ -73,6 +71,8 @@ const (
 	TypeIDUint64Ptr  = "*uint64"
 	TypeIDFloat32Ptr = "*float32"
 	TypeIDFloat64Ptr = "*float64"
+	TypeIDCtx        = "ctx"
+	TypeIDError      = "error"
 )
 
 var typeMap = map[TypeID]*TypeMeta{
@@ -83,6 +83,17 @@ var typeMap = map[TypeID]*TypeMeta{
 	TypeIDBool: {
 		ID:        TypeIDBool,
 		BasicType: BasicTypeBool,
+	},
+	TypeIDCtx: {
+		ID: TypeIDCtx,
+	},
+	TypeIDError: {
+		ID: TypeIDError,
+	},
+	TypeIDFloat64: {
+		ID:        TypeIDFloat64,
+		BasicType: BasicTypeNumber,
+		FloatType: generic.PtrOf(FloatTypeFloat64),
 	},
 	"schema.MessageTemplate": {
 		ID:        "schema.MessageTemplate",
@@ -157,6 +168,33 @@ var typeMap = map[TypeID]*TypeMeta{
 		BasicType:         BasicTypeMap,
 		InstantiationType: InstantiationTypeUnmarshal,
 		ReflectType:       generic.PtrOf(reflect.TypeOf(map[string]any{})),
+	},
+	"*compose.ToolsNode": {
+		ID:                "*compose.ToolsNode",
+		BasicType:         BasicTypeStruct,
+		InstantiationType: InstantiationTypeFunction,
+		FunctionMeta: &FunctionMeta{
+			Name:      "compose.NewToolNode",
+			FuncValue: reflect.ValueOf(NewToolNode),
+			InputTypes: []TypeID{
+				TypeIDCtx,
+				"*compose.ToolsNodeConfig",
+			},
+			OutputTypes: []TypeID{
+				"*compose.ToolsNode",
+				TypeIDError,
+			},
+		},
+	},
+	"*compose.ToolsNodeConfig": {
+		ID:                "*compose.ToolsNodeConfig",
+		BasicType:         BasicTypeStruct,
+		InstantiationType: InstantiationTypeUnmarshal,
+		ReflectType:       generic.PtrOf(reflect.TypeOf(&ToolsNodeConfig{})),
+	},
+	"tool.BaseTool": {
+		ID:        "tool.BaseTool",
+		BasicType: BasicTypeInterface,
 	},
 }
 

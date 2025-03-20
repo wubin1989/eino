@@ -94,26 +94,26 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 	dsl := node.NodeDSL
 
 	var wfNode reflect.Value
-	if dsl.GraphDSL != nil {
-		subGraph, err := NewGraphFromDSL(ctx, dsl.GraphDSL)
+	if dsl.Graph != nil {
+		subGraph, err := NewGraphFromDSL(ctx, dsl.Graph)
 		if err != nil {
 			return err
 		}
 
-		compileOptions := genGraphCompileOptions(dsl.GraphDSL)
+		compileOptions := genGraphCompileOptions(dsl.Graph)
 
 		addNodeOpts = append(addNodeOpts, WithGraphCompileOptions(compileOptions...))
 
 		wfNode = reflect.ValueOf(wf.AddGraphNode(dsl.Key, subGraph, addNodeOpts...))
 	}
 
-	if dsl.WorkflowDSL != nil {
-		subGraph, err := NewWorkflowFromDSL(ctx, dsl.WorkflowDSL)
+	if dsl.Workflow != nil {
+		subGraph, err := NewWorkflowFromDSL(ctx, dsl.Workflow)
 		if err != nil {
 			return err
 		}
 
-		compileOptions := genWorkflowCompileOptions(dsl.WorkflowDSL)
+		compileOptions := genWorkflowCompileOptions(dsl.Workflow)
 		addNodeOpts = append(addNodeOpts, WithGraphCompileOptions(compileOptions...))
 
 		wfNode = reflect.ValueOf(wf.AddGraphNode(dsl.Key, subGraph, addNodeOpts...))

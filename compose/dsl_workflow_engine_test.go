@@ -164,8 +164,8 @@ func TestWorkflowFromDSL(t *testing.T) {
 			},
 			{
 				NodeDSL: &NodeDSL{
-					Key:         "sub_workflow",
-					WorkflowDSL: subDSL,
+					Key:      "sub_workflow",
+					Workflow: subDSL,
 				},
 				Inputs: []*WorkflowNodeInputDSL{
 					{
