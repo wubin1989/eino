@@ -74,7 +74,7 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (*DSLRunner, error) {
 }
 
 func (d *DSLRunner) Invoke(ctx context.Context, in string, opts ...Option) (any, error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil)
+	v, err := d.InputType.Instantiate(ctx, []Config{{Value: in}})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (d *DSLRunner) Invoke(ctx context.Context, in string, opts ...Option) (any,
 }
 
 func (d *DSLRunner) Stream(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil)
+	v, err := d.InputType.Instantiate(ctx, []Config{{Value: in}})
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (d *DSLRunner) Stream(ctx context.Context, in string, opts ...Option) (*sch
 }
 
 func (d *DSLRunner) Collect(ctx context.Context, in string, opts ...Option) (any, error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil)
+	v, err := d.InputType.Instantiate(ctx, []Config{{Value: in}})
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (d *DSLRunner) Collect(ctx context.Context, in string, opts ...Option) (any
 }
 
 func (d *DSLRunner) Transform(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil)
+	v, err := d.InputType.Instantiate(ctx, []Config{{Value: in}})
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 		return fmt.Errorf("type not found: %v", implMeta.TypeID)
 	}
 
-	result, err := typeMeta.Instantiate(ctx, nil, dsl.Configs)
+	result, err := typeMeta.Instantiate(ctx, dsl.Configs)
 	if err != nil {
 		return err
 	}
@@ -428,7 +428,7 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, conf Config) (ref
 			return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
 		}
 
-		slotInstance, err := slotType.Instantiate(ctx, nil, slot.Configs)
+		slotInstance, err := slotType.Instantiate(ctx, slot.Configs)
 		if err != nil {
 			return reflect.Value{}, err
 		}
@@ -478,7 +478,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) 
 					return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
 				}
 
-				slotInstance, err := slotType.Instantiate(ctx, nil, slot.Configs)
+				slotInstance, err := slotType.Instantiate(ctx, slot.Configs)
 				if err != nil {
 					return reflect.Value{}, err
 				}
@@ -552,31 +552,23 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) 
 	return results[0], nil
 }
 
-func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config) (reflect.Value, error) {
+func (t *TypeMeta) Instantiate(ctx context.Context, configs []Config) (reflect.Value, error) {
+	if len(configs) == 0 {
+		return reflect.Value{}, fmt.Errorf("no configs provided")
+	}
+
 	switch t.BasicType {
 	case BasicTypeInteger, BasicTypeString, BasicTypeBool, BasicTypeNumber:
-		if config == nil {
-			return reflect.Value{}, fmt.Errorf("config is nil when instantiate by literal: %v", t.ID)
-		}
-		return t.InstantiateByLiteral(*config)
+		return t.InstantiateByLiteral(configs[0].Value)
 	case BasicTypeStruct, BasicTypeArray, BasicTypeMap:
 		switch t.InstantiationType {
 		case InstantiationTypeUnmarshal:
-			if config != nil && len(configs) > 0 {
-				return reflect.Value{}, fmt.Errorf("config and configs both present when instantiate by unmarshal: %v", t.ID)
-			}
 			if len(configs) > 1 {
 				return reflect.Value{}, fmt.Errorf("configs are not allowed when instantiate by unmarshal: %v", t.ID)
 			}
 
-			if config != nil {
-				return t.InstantiateByUnmarshal(ctx, Config{Value: *config})
-			}
 			return t.InstantiateByUnmarshal(ctx, configs[0])
 		case InstantiationTypeFunction:
-			if config != nil {
-				return reflect.Value{}, fmt.Errorf("config is not allowed when instantiate by function: %v", t.ID)
-			}
 			return t.InstantiateByFunction(ctx, configs)
 		default:
 			return reflect.Value{}, fmt.Errorf("unsupported instantiation type %v, for basicType: %v, typeID: %s",

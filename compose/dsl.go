@@ -149,7 +149,6 @@ type Slot struct {
 
 	Path FieldPath `json:"path,omitempty" yaml:"path,omitempty"`
 
-	Config  *string  `json:"config,omitempty" yaml:"config,omitempty"`
 	Configs []Config `json:"configs,omitempty" yaml:"configs,omitempty"`
 	Slots   []Slot   `json:"slots,omitempty" yaml:"slots,omitempty"` // nested slots
 }
