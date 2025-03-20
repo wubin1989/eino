@@ -9,6 +9,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/stretchr/testify/assert"
+	"gopkg.in/yaml.v3"
 
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components"
@@ -131,40 +132,38 @@ func TestGraphWithChatTemplate(t *testing.T) {
 				ImplID: "prompt.DefaultChatTemplate",
 				Configs: []Config{
 					{
-						Index: 0,
 						Value: "0",
 					},
-				},
-				Slots: []Slot{
 					{
-						TypeID: "schema.messagePlaceholder",
-						Path:   FieldPath{"[1]"},
-						Configs: []Config{
-							{
-								Index: 0,
-								Value: "history",
-							},
-							{
-								Index: 1,
-								Value: "true",
+						Slot: &Slot{
+							TypeID: "schema.messagePlaceholder",
+							Configs: []Config{
+								{
+									Value: "history",
+								},
+								{
+									Value: "true",
+								},
 							},
 						},
 					},
 					{
-						TypeID: "*schema.Message",
-						Path:   FieldPath{"[2]"},
-						Configs: []Config{
-							{
-								Value: `{"role":"system", "content":"you are a {certain} assistant"}`,
+						Slot: &Slot{
+							TypeID: "*schema.Message",
+							Configs: []Config{
+								{
+									Value: `{"role":"system", "content":"you are a {certain} assistant"}`,
+								},
 							},
 						},
 					},
 					{
-						TypeID: "*schema.Message",
-						Path:   FieldPath{"[3]"},
-						Configs: []Config{
-							{
-								Value: `{"role":"user", "content":"hello, {world}"}`,
+						Slot: &Slot{
+							TypeID: "*schema.Message",
+							Configs: []Config{
+								{
+									Value: `{"role":"user", "content":"hello, {world}"}`,
+								},
 							},
 						},
 					},
@@ -182,6 +181,10 @@ func TestGraphWithChatTemplate(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
@@ -235,7 +238,6 @@ func TestGraphWithRetriever(t *testing.T) {
 								Path:   FieldPath{"Embedding"},
 								Configs: []Config{
 									{
-										Index: 1,
 										Value: "{}",
 									},
 								},
@@ -256,6 +258,11 @@ func TestGraphWithRetriever(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(dsl)
+	assert.NoError(t, err)
+	t.Log(string(content))
+
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, dsl)
 	if err != nil {
@@ -578,10 +585,10 @@ func TestDSLWithStreamStateHandlers(t *testing.T) {
 		StateType:       (*TypeID)(generic.PtrOf("state")),
 		Nodes: []*NodeDSL{
 			{
-				Key:                    "1",
-				ImplID:                 "lambda.MessagePtrToList",
-				StreamStatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
-				StreamStatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
+				Key:              "1",
+				ImplID:           "lambda.MessagePtrToList",
+				StatePreHandler:  (*StateHandlerID)(generic.PtrOf("preHandler")),
+				StatePostHandler: (*StateHandlerID)(generic.PtrOf("postHandler")),
 			},
 		},
 		Edges: []*EdgeDSL{
@@ -653,6 +660,10 @@ func TestDSLWithSubGraph(t *testing.T) {
 			},
 		},
 	}
+
+	content, err := yaml.Marshal(parentGraphDSL)
+	assert.NoError(t, err)
+	t.Log(string(content))
 
 	ctx := context.Background()
 	c, err := CompileGraph(ctx, parentGraphDSL)

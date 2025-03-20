@@ -125,32 +125,29 @@ const (
 )
 
 type NodeDSL struct {
-	Key                    string          `json:"key" yaml:"key"`
-	ImplID                 string          `json:"impl_id" yaml:"impl_id"`
-	Name                   *string         `json:"name,omitempty" yaml:"name,omitempty"`
-	Config                 *string         `json:"config,omitempty" yaml:"config,omitempty"`   // use when there is only one input parameter other than ctx
-	Configs                []Config        `json:"configs,omitempty" yaml:"configs,omitempty"` // use when there are multiple input parameters other than ctx
-	Slots                  []Slot          `json:"slots,omitempty" yaml:"slots,omitempty"`
-	InputKey               *string         `json:"input_key,omitempty" yaml:"input_key,omitempty"`
-	OutputKey              *string         `json:"output_key,omitempty" yaml:"output_key,omitempty"`
-	GraphDSL               *GraphDSL       `json:"graph_dsl,omitempty" yaml:"graph_dsl,omitempty"`
-	WorkflowDSL            *WorkflowDSL    `json:"workflow_dsl,omitempty" yaml:"workflow_dsl,omitempty"`
-	StatePreHandler        *StateHandlerID `json:"state_pre_handler,omitempty" yaml:"state_pre_handler,omitempty"`
-	StatePostHandler       *StateHandlerID `json:"state_post_handler,omitempty" yaml:"state_post_handler,omitempty"`
-	StreamStatePreHandler  *StateHandlerID `json:"stream_state_pre_handler,omitempty" yaml:"stream_state_pre_handler,omitempty"`
-	StreamStatePostHandler *StateHandlerID `json:"stream_state_post_handler,omitempty" yaml:"stream_state_post_handler,omitempty"`
+	Key              string          `json:"key" yaml:"key"`
+	ImplID           string          `json:"impl_id,omitempty" yaml:"impl_id,omitempty"`
+	Name             *string         `json:"name,omitempty" yaml:"name,omitempty"`
+	Configs          []Config        `json:"configs,omitempty" yaml:"configs,omitempty"`
+	InputKey         *string         `json:"input_key,omitempty" yaml:"input_key,omitempty"`
+	OutputKey        *string         `json:"output_key,omitempty" yaml:"output_key,omitempty"`
+	GraphDSL         *GraphDSL       `json:"graph_dsl,omitempty" yaml:"graph_dsl,omitempty"`
+	WorkflowDSL      *WorkflowDSL    `json:"workflow_dsl,omitempty" yaml:"workflow_dsl,omitempty"`
+	StatePreHandler  *StateHandlerID `json:"state_pre_handler,omitempty" yaml:"state_pre_handler,omitempty"`
+	StatePostHandler *StateHandlerID `json:"state_post_handler,omitempty" yaml:"state_post_handler,omitempty"`
 }
 
 type Config struct {
-	Index int    `json:"index" yaml:"index"`
-	Value string `json:"value" yaml:"value"`
+	Value string `json:"value,omitempty" yaml:"value,omitempty"`
+	Slot  *Slot  `json:"slot,omitempty" yaml:"slot,omitempty"`
 	Slots []Slot `json:"slots,omitempty" yaml:"slots,omitempty"`
+	isCtx bool
 }
 
 type Slot struct {
 	TypeID TypeID `json:"type_id" yaml:"type_id"` // the actual type ID of the slot instance. BasicType should not be interface
 
-	Path FieldPath `json:"path" yaml:"path"`
+	Path FieldPath `json:"path,omitempty" yaml:"path,omitempty"`
 
 	Config  *string  `json:"config,omitempty" yaml:"config,omitempty"`
 	Configs []Config `json:"configs,omitempty" yaml:"configs,omitempty"`

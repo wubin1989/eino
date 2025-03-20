@@ -74,7 +74,7 @@ func CompileGraph(ctx context.Context, dsl *GraphDSL) (*DSLRunner, error) {
 }
 
 func (d *DSLRunner) Invoke(ctx context.Context, in string, opts ...Option) (any, error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	v, err := d.InputType.Instantiate(ctx, &in, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (d *DSLRunner) Invoke(ctx context.Context, in string, opts ...Option) (any,
 }
 
 func (d *DSLRunner) Stream(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	v, err := d.InputType.Instantiate(ctx, &in, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (d *DSLRunner) Stream(ctx context.Context, in string, opts ...Option) (*sch
 }
 
 func (d *DSLRunner) Collect(ctx context.Context, in string, opts ...Option) (any, error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	v, err := d.InputType.Instantiate(ctx, &in, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (d *DSLRunner) Collect(ctx context.Context, in string, opts ...Option) (any
 }
 
 func (d *DSLRunner) Transform(ctx context.Context, in string, opts ...Option) (*schema.StreamReader[any], error) {
-	v, err := d.InputType.Instantiate(ctx, &in, nil, nil)
+	v, err := d.InputType.Instantiate(ctx, &in, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 		return fmt.Errorf("type not found: %v", implMeta.TypeID)
 	}
 
-	result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
+	result, err := typeMeta.Instantiate(ctx, nil, dsl.Configs)
 	if err != nil {
 		return err
 	}
@@ -428,7 +428,7 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, conf Config) (ref
 			return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
 		}
 
-		slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
+		slotInstance, err := slotType.Instantiate(ctx, nil, slot.Configs)
 		if err != nil {
 			return reflect.Value{}, err
 		}
@@ -442,35 +442,64 @@ func (t *TypeMeta) InstantiateByUnmarshal(ctx context.Context, conf Config) (ref
 	return rValue, nil
 }
 
-func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config, slots []Slot) (reflect.Value, error) {
+func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config) (reflect.Value, error) {
 	fMeta := t.FunctionMeta
 	if fMeta == nil {
 		return reflect.Value{}, fmt.Errorf("function meta not found: %v", t.ID)
 	}
 
-	var (
-		results          []reflect.Value
-		nonCtxParamCount = len(fMeta.InputTypes)
-	)
+	var results []reflect.Value
+
 	if len(fMeta.InputTypes) == 0 {
 		results = fMeta.FuncValue.Call([]reflect.Value{})
 	} else {
-		inputs := make(map[int]reflect.Value, len(configs)+1)
+		inputs := make([]reflect.Value, 0, len(configs)+1)
+
+		// add a context parameter at the front if needed
 		first := fMeta.InputTypes[0]
 		if first == ctxType.ID {
-			nonCtxParamCount--
-			inputs[0] = reflect.ValueOf(ctx)
+			configs = append([]Config{
+				{
+					isCtx: true,
+				},
+			}, configs...)
 		}
 
 		for i, conf := range configs {
+			if conf.isCtx {
+				inputs = append(inputs, reflect.ValueOf(ctx))
+				continue
+			}
+
+			if conf.Slot != nil {
+				slot := conf.Slot
+				slotType, ok := typeMap[slot.TypeID]
+				if !ok {
+					return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
+				}
+
+				slotInstance, err := slotType.Instantiate(ctx, nil, slot.Configs)
+				if err != nil {
+					return reflect.Value{}, err
+				}
+
+				if len(slot.Path) > 0 {
+					return reflect.Value{}, fmt.Errorf("non empty slot path for slice element. path= %s", slot.Path)
+				}
+
+				inputs = append(inputs, slotInstance)
+
+				continue
+			}
+
 			var fTypeID TypeID
-			if i >= nonCtxParamCount {
+			if i >= len(fMeta.InputTypes) {
 				if !fMeta.IsVariadic {
-					return reflect.Value{}, fmt.Errorf("configs length mismatch: given %d, nonCtxParamCount %d", len(configs), nonCtxParamCount)
+					return reflect.Value{}, fmt.Errorf("configs length mismatch: given %d, defined %d", len(configs), len(fMeta.InputTypes))
 				}
 				fTypeID = fMeta.InputTypes[len(fMeta.InputTypes)-1]
 			} else {
-				fTypeID = fMeta.InputTypes[conf.Index]
+				fTypeID = fMeta.InputTypes[i]
 			}
 
 			fType, ok := typeMap[fTypeID]
@@ -484,51 +513,18 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config, 
 				if err != nil {
 					return reflect.Value{}, err
 				}
-				if _, ok := inputs[conf.Index]; ok {
-					return reflect.Value{}, fmt.Errorf("duplicate config index: %d", conf.Index)
-				}
 
-				inputs[conf.Index] = rValue
+				inputs = append(inputs, rValue)
 			case InstantiationTypeLiteral:
 				rValue, err := fType.InstantiateByLiteral(conf.Value)
 				if err != nil {
 					return reflect.Value{}, err
 				}
-				if _, ok := inputs[conf.Index]; ok {
-					return reflect.Value{}, fmt.Errorf("duplicate config index: %d", conf.Index)
-				}
-				inputs[conf.Index] = rValue
+
+				inputs = append(inputs, rValue)
 			default:
 				return reflect.Value{}, fmt.Errorf("unsupported instantiation type for function parameter: %v", fType.InstantiationType)
 			}
-		}
-
-		for _, slot := range slots {
-			slotType, ok := typeMap[slot.TypeID]
-			if !ok {
-				return reflect.Value{}, fmt.Errorf("type not found: %v", slot.TypeID)
-			}
-
-			slotInstance, err := slotType.Instantiate(ctx, slot.Config, slot.Configs, slot.Slots)
-			if err != nil {
-				return reflect.Value{}, err
-			}
-
-			if len(slot.Path) == 0 {
-				return reflect.Value{}, fmt.Errorf("empty slot path")
-			}
-
-			index, err := extractSliceIndexFromPath(slot.Path[0])
-			if err != nil {
-				return reflect.Value{}, err
-			}
-
-			_, ok = inputs[index]
-			if ok {
-				return reflect.Value{}, fmt.Errorf("duplicate slot index: %d", index)
-			}
-
-			inputs[index] = slotInstance
 		}
 
 		inputValues := make([]reflect.Value, len(inputs))
@@ -556,7 +552,7 @@ func (t *TypeMeta) InstantiateByFunction(ctx context.Context, configs []Config, 
 	return results[0], nil
 }
 
-func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config, slots []Slot) (reflect.Value, error) {
+func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Config) (reflect.Value, error) {
 	switch t.BasicType {
 	case BasicTypeInteger, BasicTypeString, BasicTypeBool, BasicTypeNumber:
 		if config == nil {
@@ -568,9 +564,6 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 		case InstantiationTypeUnmarshal:
 			if config != nil && len(configs) > 0 {
 				return reflect.Value{}, fmt.Errorf("config and configs both present when instantiate by unmarshal: %v", t.ID)
-			}
-			if len(slots) > 0 {
-				return reflect.Value{}, fmt.Errorf("slots are not allowed when instantiate by unmarshal: %v", t.ID)
 			}
 			if len(configs) > 1 {
 				return reflect.Value{}, fmt.Errorf("configs are not allowed when instantiate by unmarshal: %v", t.ID)
@@ -584,7 +577,7 @@ func (t *TypeMeta) Instantiate(ctx context.Context, config *string, configs []Co
 			if config != nil {
 				return reflect.Value{}, fmt.Errorf("config is not allowed when instantiate by function: %v", t.ID)
 			}
-			return t.InstantiateByFunction(ctx, configs, slots)
+			return t.InstantiateByFunction(ctx, configs)
 		default:
 			return reflect.Value{}, fmt.Errorf("unsupported instantiation type %v, for basicType: %v, typeID: %s",
 				t.InstantiationType, t.BasicType, t.ID)
@@ -879,16 +872,13 @@ func genAddNodeOptions(dsl *NodeDSL) ([]GraphAddNodeOpt, error) {
 			return nil, fmt.Errorf("unknown state pre handler: %v", *dsl.StatePreHandler)
 		}
 
-		handlerFunc := stateHandler(handler)
-
-		addNodeOpts = append(addNodeOpts, WithStatePreHandler(handlerFunc))
-	} else if dsl.StreamStatePreHandler != nil {
-		handler, ok := stateHandlerMap[*dsl.StreamStatePreHandler]
-		if !ok {
-			return nil, fmt.Errorf("unknown stream state pre handler: %v", *dsl.StreamStatePreHandler)
+		if !handler.IsStream {
+			handlerFunc := stateHandler(handler)
+			addNodeOpts = append(addNodeOpts, WithStatePreHandler(handlerFunc))
+		} else {
+			handlerFunc := streamStateHandler(handler)
+			addNodeOpts = append(addNodeOpts, WithStreamStatePreHandler(handlerFunc))
 		}
-		handlerFunc := streamStateHandler(handler)
-		addNodeOpts = append(addNodeOpts, WithStreamStatePreHandler(handlerFunc))
 	}
 
 	if dsl.StatePostHandler != nil {
@@ -897,16 +887,13 @@ func genAddNodeOptions(dsl *NodeDSL) ([]GraphAddNodeOpt, error) {
 			return nil, fmt.Errorf("unknown state post handler: %v", *dsl.StatePostHandler)
 		}
 
-		handlerFunc := stateHandler(handler)
-
-		addNodeOpts = append(addNodeOpts, WithStatePostHandler(handlerFunc))
-	} else if dsl.StreamStatePostHandler != nil {
-		handler, ok := stateHandlerMap[*dsl.StreamStatePostHandler]
-		if !ok {
-			return nil, fmt.Errorf("unknown stream state post handler: %v", *dsl.StreamStatePostHandler)
+		if !handler.IsStream {
+			handlerFunc := stateHandler(handler)
+			addNodeOpts = append(addNodeOpts, WithStatePostHandler(handlerFunc))
+		} else {
+			handlerFunc := streamStateHandler(handler)
+			addNodeOpts = append(addNodeOpts, WithStreamStatePostHandler(handlerFunc))
 		}
-		handlerFunc := streamStateHandler(handler)
-		addNodeOpts = append(addNodeOpts, WithStreamStatePostHandler(handlerFunc))
 	}
 
 	return addNodeOpts, nil

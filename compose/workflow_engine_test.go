@@ -29,11 +29,6 @@ func TestWorkflowFromDSL(t *testing.T) {
 		return in, nil
 	}
 
-	lambda4 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
-		in["lambda4"] = "4"
-		return in, nil
-	}
-
 	lambda5 := func(ctx context.Context, in map[string]any) (map[string]any, error) {
 		in["lambda5"] = "5"
 		return in, nil
@@ -52,11 +47,6 @@ func TestWorkflowFromDSL(t *testing.T) {
 	implMap["lambda3"] = &ImplMeta{
 		ComponentType: ComponentOfLambda,
 		Lambda:        func() *Lambda { return InvokableLambda(lambda3) },
-	}
-
-	implMap["lambda4"] = &ImplMeta{
-		ComponentType: ComponentOfLambda,
-		Lambda:        func() *Lambda { return InvokableLambda(lambda4) },
 	}
 
 	implMap["lambda5"] = &ImplMeta{
@@ -101,7 +91,6 @@ func TestWorkflowFromDSL(t *testing.T) {
 		delete(implMap, "lambda1")
 		delete(implMap, "lambda2")
 		delete(implMap, "lambda3")
-		delete(implMap, "lambda4")
 		delete(implMap, "lambda5")
 		delete(branchFunctionMap, "condition")
 	}()

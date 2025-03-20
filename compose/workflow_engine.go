@@ -138,7 +138,7 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 				return fmt.Errorf("type not found: %v", implMeta.TypeID)
 			}
 
-			result, err := typeMeta.Instantiate(ctx, dsl.Config, dsl.Configs, dsl.Slots)
+			result, err := typeMeta.Instantiate(ctx, nil, dsl.Configs)
 			if err != nil {
 				return err
 			}
@@ -165,7 +165,7 @@ func workflowAddNode(ctx context.Context, wf *Workflow[any, any], node *Workflow
 			return fmt.Errorf("type not found: %v", staticValue.TypeID)
 		}
 
-		v, err := typeMeta.Instantiate(ctx, &staticValue.Value, nil, nil)
+		v, err := typeMeta.Instantiate(ctx, &staticValue.Value, nil)
 		if err != nil {
 			return err
 		}
