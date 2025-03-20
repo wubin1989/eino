@@ -2,7 +2,6 @@ package compose
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -63,21 +62,11 @@ func TestWorkflowFromDSL(t *testing.T) {
 	}
 
 	condition := func(ctx context.Context, in map[string]any) (string, error) {
-		lambda1, ok := in["lambda1"]
-		if !ok {
-			return "lambda3", nil
-		}
-
-		lambda2, ok := in["lambda2"]
-		if !ok {
+		if in[START] == "hello" {
 			return "lambda4", nil
 		}
 
-		if len(fmt.Sprintf("%v", lambda1)) > len(fmt.Sprintf("%v", lambda2)) {
-			return "lambda3", nil
-		}
-
-		return "lambda4", nil
+		return "lambda3", nil
 	}
 
 	branchFunctionMap["condition"] = &BranchFunction{
@@ -125,7 +114,7 @@ func TestWorkflowFromDSL(t *testing.T) {
 					},
 				},
 			},
-			/*{
+			{
 				NodeDSL: &NodeDSL{
 					Key:    "lambda3",
 					ImplID: "lambda3",
@@ -181,80 +170,86 @@ func TestWorkflowFromDSL(t *testing.T) {
 				Dependencies: []string{
 					"lambda3",
 				},
-			},*/
+			},
 		},
-		/*		Branches: []*WorkflowBranchDSL{
-				{
-					Key: "branch",
-					BranchDSL: &BranchDSL{
-						Condition: "condition",
-						EndNodes: []string{
-							"lambda3",
-							"lambda4",
-						},
-					},
-					Inputs: []*WorkflowNodeInputDSL{
-						{
-							FromNodeKey: "lambda1",
-							FieldPathMappings: []FieldPathMapping{
-								{
-									From: FieldPath{"lambda1"},
-									To:   FieldPath{"lambda1"},
-								},
-							},
-						},
-						{
-							FromNodeKey: START,
-							FieldPathMappings: []FieldPathMapping{
-								{
-									From: FieldPath{START},
-									To:   FieldPath{START},
-								},
-							},
-							NoDirectDependency: true,
-						},
-					},
-					Dependencies: []string{
-						"lambda2",
+		Branches: []*WorkflowBranchDSL{
+			{
+				Key: "branch",
+				BranchDSL: &BranchDSL{
+					Condition: "condition",
+					EndNodes: []string{
+						"lambda3",
+						"lambda4",
 					},
 				},
-			},*/
+				Inputs: []*WorkflowNodeInputDSL{
+					{
+						FromNodeKey: "lambda1",
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{"lambda1"},
+								To:   FieldPath{"lambda1"},
+							},
+						},
+					},
+					{
+						FromNodeKey: START,
+						FieldPathMappings: []FieldPathMapping{
+							{
+								From: FieldPath{START},
+								To:   FieldPath{START},
+							},
+						},
+						NoDirectDependency: true,
+					},
+				},
+				Dependencies: []string{
+					"lambda2",
+				},
+			},
+		},
 		EndInputs: []*WorkflowNodeInputDSL{
 			{
-				FromNodeKey: "lambda1",
+				FromNodeKey: "lambda4",
 				FieldPathMappings: []FieldPathMapping{
 					{
-						From: FieldPath{"lambda1"},
-						To:   FieldPath{"lambda1"},
+						From: FieldPath{"lambda4"},
+						To:   FieldPath{"lambda4"},
 					},
 				},
 			},
 			{
-				FromNodeKey: "lambda2",
+				FromNodeKey: "lambda3",
 				FieldPathMappings: []FieldPathMapping{
 					{
-						From: FieldPath{"lambda2"},
-						To:   FieldPath{"lambda2"},
+						From: FieldPath{"lambda3"},
+						To:   FieldPath{"lambda3"},
 					},
 				},
-				//NoDirectDependency: true,
+				NoDirectDependency: true,
 			},
 		},
-		/*EndDependencies: []string{
-			"lambda4",
-		},*/
+		EndDependencies: []string{
+			"lambda5",
+		},
 	}
 
 	ctx := context.Background()
 	r, err := CompileWorkflow(ctx, dsl)
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.NoError(t, err)
 	out, err := r.Invoke(ctx, map[string]any{
 		START: "hello",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, "hello", out)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"lambda4": "4",
+	}, out)
+
+	out, err = r.Invoke(ctx, map[string]any{
+		START: "hello1",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"lambda3": "3",
+	}, out)
 }

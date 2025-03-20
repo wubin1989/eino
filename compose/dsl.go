@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/cloudwego/eino/components"
+	"github.com/cloudwego/eino/internal/generic"
 	"github.com/cloudwego/eino/schema"
 )
 
@@ -224,6 +225,7 @@ type WorkflowBranchDSL struct {
 type StreamConverter interface {
 	convertFromAny(in *schema.StreamReader[any]) (reflect.Value, error)
 	packToAny(v reflect.Value) *schema.StreamReader[any]
+	inputType() reflect.Type
 }
 
 type StreamConverterImpl[T any] struct{}
@@ -242,4 +244,8 @@ func (sh *StreamConverterImpl[T]) convertFromAny(in *schema.StreamReader[any]) (
 func (sh *StreamConverterImpl[T]) packToAny(v reflect.Value) *schema.StreamReader[any] {
 	f := reflect.ValueOf(packStreamReader[T])
 	return f.Call([]reflect.Value{v})[0].Interface().(streamReader).toAnyStreamReader()
+}
+
+func (sh *StreamConverterImpl[T]) inputType() reflect.Type {
+	return generic.TypeOf[T]()
 }

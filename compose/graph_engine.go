@@ -130,7 +130,7 @@ func graphAddNode(ctx context.Context, g *Graph[any, any], dsl *NodeDSL) error {
 }
 
 func graphAddBranch(_ context.Context, g *Graph[any, any], dsl *GraphBranchDSL) error {
-	branch, err := genBranch(dsl.BranchDSL)
+	branch, _, err := genBranch(dsl.BranchDSL)
 	if err != nil {
 		return err
 	}
@@ -138,9 +138,9 @@ func graphAddBranch(_ context.Context, g *Graph[any, any], dsl *GraphBranchDSL) 
 	return g.AddBranch(dsl.FromNode, branch)
 }
 
-func genBranch(dsl *BranchDSL) (*GraphBranch, error) {
+func genBranch(dsl *BranchDSL) (*GraphBranch, reflect.Type, error) {
 	if len(dsl.EndNodes) <= 1 {
-		return nil, fmt.Errorf("graph branch must have more than one end nodes, actual= %v", dsl.EndNodes)
+		return nil, nil, fmt.Errorf("graph branch must have more than one end nodes, actual= %v", dsl.EndNodes)
 	}
 
 	endNodes := make(map[string]bool, len(dsl.EndNodes))
@@ -150,14 +150,19 @@ func genBranch(dsl *BranchDSL) (*GraphBranch, error) {
 
 	branchFunc, ok := branchFunctionMap[dsl.Condition]
 	if !ok {
-		return nil, fmt.Errorf("branch function not found: %v", dsl.Condition)
+		return nil, nil, fmt.Errorf("branch function not found: %v", dsl.Condition)
 	}
 
 	// convert condition to GraphBranchCondition[any] or GraphStreamBranchCondition[any]
 	// create the *GraphBranch
-	var branch *GraphBranch
+	var (
+		branch    *GraphBranch
+		inputType reflect.Type
+	)
 
 	if !branchFunc.IsStream {
+		inputType = branchFunc.FuncValue.Type().In(1)
+
 		condition := func(ctx context.Context, in any) (string, error) {
 			if !reflect.TypeOf(in).AssignableTo(branchFunc.InputType) {
 				return "", fmt.Errorf("branch condition expects input type of %v, actual= %v", branchFunc.InputType, reflect.TypeOf(in))
@@ -176,6 +181,8 @@ func genBranch(dsl *BranchDSL) (*GraphBranch, error) {
 		}
 		branch = NewGraphBranch(condition, endNodes)
 	} else {
+		inputType = branchFunc.StreamConverter.inputType()
+
 		condition := func(ctx context.Context, in *schema.StreamReader[any]) (string, error) {
 			converted, err := branchFunc.StreamConverter.convertFromAny(in)
 			if err != nil {
@@ -193,7 +200,7 @@ func genBranch(dsl *BranchDSL) (*GraphBranch, error) {
 		branch = NewStreamGraphBranch(condition, endNodes)
 	}
 
-	return branch, nil
+	return branch, inputType, nil
 }
 
 func assignSlot(destValue reflect.Value, taken any, toPaths FieldPath) (reflect.Value, error) {

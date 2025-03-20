@@ -340,14 +340,33 @@ type WorkflowBranch struct {
 	inputs                      map[string][]*FieldMapping
 	inputWithNoDirectDependency map[string]bool
 	dependenciesWithoutInput    []string
+	actualInputType             reflect.Type
 }
 
-func (wf *Workflow[I, O]) AddBranch(branchKey string, branch *GraphBranch) *WorkflowBranch {
+type addWorkflowBranchOptions struct {
+	actualInputType reflect.Type
+}
+
+type AddWorkflowBranchOption func(*addWorkflowBranchOptions)
+
+func withBranchInputType(typ reflect.Type) AddWorkflowBranchOption {
+	return func(args *addWorkflowBranchOptions) {
+		args.actualInputType = typ
+	}
+}
+
+func (wf *Workflow[I, O]) AddBranch(branchKey string, branch *GraphBranch, opts ...AddWorkflowBranchOption) *WorkflowBranch {
+	options := &addWorkflowBranchOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	wb := &WorkflowBranch{
 		branchKey:                   branchKey,
 		GraphBranch:                 branch,
 		inputs:                      make(map[string][]*FieldMapping),
 		inputWithNoDirectDependency: make(map[string]bool),
+		actualInputType:             options.actualInputType,
 	}
 	wf.workflowBranches[branchKey] = wb
 	return wb
@@ -386,6 +405,25 @@ func (wb *WorkflowBranch) addDependencyRelation(fromNodeKey string, inputs []*Fi
 	}
 
 	return wb
+}
+
+func (wb *WorkflowBranch) conditionInputType() reflect.Type {
+	if wb.actualInputType != nil {
+		return wb.actualInputType
+	}
+
+	return wb.condition.inputType
+}
+
+func (wb *WorkflowBranch) conditionFieldMappingConverter() handlerPair {
+	if wb.actualInputType != nil {
+		return handlerPair{
+			invoke:    buildFieldMappingConverterWithReflect(wb.actualInputType),
+			transform: buildStreamFieldMappingConverterWithReflect(wb.actualInputType),
+		}
+	}
+
+	return wb.condition.inputFieldMappingConverter
 }
 
 // AddEnd 创建 fromNodeKey 到 END 的流转关系，同时在 fromNodeKey 和 END 之间创建数据映射.
@@ -449,10 +487,10 @@ func (wf *Workflow[I, O]) compile(ctx context.Context, options *graphCompileOpti
 
 	for _, wb := range wf.workflowBranches {
 		passthrough := wf.addPassthroughNode(wb.branchKey)
-		wf.g.nodes[wb.branchKey].cr.inputType = wb.GraphBranch.condition.inputType
+		wf.g.nodes[wb.branchKey].cr.inputType = wb.conditionInputType()
 		wf.g.nodes[wb.branchKey].cr.outputType = wf.g.nodes[wb.branchKey].cr.inputType
 		wf.g.nodes[wb.branchKey].cr.inputConverter = wb.GraphBranch.condition.inputConverter
-		wf.g.nodes[wb.branchKey].cr.inputFieldMappingConverter = wb.GraphBranch.condition.inputFieldMappingConverter
+		wf.g.nodes[wb.branchKey].cr.inputFieldMappingConverter = wb.conditionFieldMappingConverter()
 		for fromNodeKey, inputs := range wb.inputs {
 			if wb.inputWithNoDirectDependency[fromNodeKey] {
 				passthrough.AddInputWithOptions(fromNodeKey, inputs, WithNoDirectDependency())
