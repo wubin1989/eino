@@ -155,9 +155,14 @@ func TestWorkflowFromDSL(t *testing.T) {
 				},
 				StaticValues: []StaticValue{
 					{
-						TypeID: "string",
+						TypeID: TypeIDString,
 						Path:   FieldPath{"static_value"},
 						Value:  "static_value",
+					},
+					{
+						TypeID: TypeIDInt,
+						Path:   FieldPath{"int_value"},
+						Value:  123,
 					},
 				},
 			},
@@ -258,6 +263,10 @@ func TestWorkflowFromDSL(t *testing.T) {
 						From: FieldPath{"static_value"},
 						To:   FieldPath{"static_value"},
 					},
+					{
+						From: FieldPath{"int_value"},
+						To:   FieldPath{"int_value"},
+					},
 				},
 				NoDirectDependency: true,
 			},
@@ -288,5 +297,6 @@ func TestWorkflowFromDSL(t *testing.T) {
 	assert.Equal(t, map[string]any{
 		"lambda3":      "3",
 		"static_value": "static_value",
+		"int_value":    123,
 	}, out)
 }

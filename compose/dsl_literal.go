@@ -95,6 +95,11 @@ var typeMap = map[TypeID]*TypeMeta{
 		BasicType: BasicTypeNumber,
 		FloatType: generic.PtrOf(FloatTypeFloat64),
 	},
+	TypeIDInt: {
+		ID:          TypeIDInt,
+		BasicType:   BasicTypeInteger,
+		IntegerType: generic.PtrOf(IntegerTypeInt),
+	},
 	"schema.MessageTemplate": {
 		ID:        "schema.MessageTemplate",
 		BasicType: BasicTypeInterface, // this is a slot

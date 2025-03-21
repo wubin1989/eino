@@ -85,7 +85,7 @@ type WorkflowNodeDSL struct {
 type StaticValue struct {
 	TypeID TypeID    `json:"type_id" yaml:"type_id"`
 	Path   FieldPath `json:"path" yaml:"path"`
-	Value  string    `json:"value" yaml:"value"`
+	Value  any       `json:"value" yaml:"value"`
 }
 
 type WorkflowNodeInputDSL struct {
