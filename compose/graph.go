@@ -28,6 +28,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/prompt"
 	"github.com/cloudwego/eino/components/retriever"
+	"github.com/cloudwego/eino/internal/compose"
 	"github.com/cloudwego/eino/internal/generic"
 	"github.com/cloudwego/eino/internal/gmap"
 	"github.com/cloudwego/eino/schema"
@@ -1121,9 +1122,7 @@ func validateDAG(chanSubscribeTo map[string]*chanCall, invertedEdges map[string]
 }
 
 func NewNodePath(path ...string) *NodePath {
-	return &NodePath{path: path}
+	return compose.NewNodePath(path...)
 }
 
-type NodePath struct {
-	path []string
-}
+type NodePath = compose.NodePath

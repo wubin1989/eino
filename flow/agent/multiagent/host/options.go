@@ -21,6 +21,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/flow/agent"
+	agent2 "github.com/cloudwego/eino/internal/flow/agent"
 )
 
 type options struct {
@@ -86,7 +87,7 @@ func ConvertOptions(nodePath *compose.NodePath, opts ...agent.AgentOption) []com
 	composeOpts := agent.GetImplSpecificOptions(&options{}, opts...).composeOptions
 	if nodePath != nil {
 		for i := range composeOpts {
-			composeOpts[i] = composeOpts[i].DesignateNodePrependPath(nodePath)
+			composeOpts[i] = agent2.DesignateNodePrependPath(composeOpts[i], nodePath)
 		}
 	}
 
@@ -94,7 +95,7 @@ func ConvertOptions(nodePath *compose.NodePath, opts ...agent.AgentOption) []com
 	if convertedCallbackHandler != nil {
 		callbackOpt := compose.WithCallbacks(convertedCallbackHandler).DesignateNode(defaultHostNodeKey)
 		if nodePath != nil {
-			return append(composeOpts, callbackOpt.DesignateNodePrependPath(nodePath))
+			return append(composeOpts, agent2.DesignateNodePrependPath(callbackOpt, nodePath))
 		}
 		return append(composeOpts, callbackOpt)
 	}
