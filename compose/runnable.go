@@ -180,9 +180,16 @@ func (rp *runnablePacker[I, O, TOption]) toComposableRunnable() *composableRunna
 	}
 
 	i := func(ctx context.Context, input any, opts ...any) (output any, err error) {
-		in, ok := input.(I)
-		if !ok {
-			panic(newUnexpectedInputTypeErr(inputType, reflect.TypeOf(input)))
+		var (
+			in I
+			ok bool
+		)
+
+		if input != nil {
+			in, ok = input.(I)
+			if !ok {
+				panic(newUnexpectedInputTypeErr(inputType, reflect.TypeOf(input)))
+			}
 		}
 
 		tos, err := convertOption[TOption](opts...)
@@ -193,9 +200,21 @@ func (rp *runnablePacker[I, O, TOption]) toComposableRunnable() *composableRunna
 	}
 
 	t := func(ctx context.Context, input streamReader, opts ...any) (output streamReader, err error) {
-		in, ok := unpackStreamReader[I](input)
-		if !ok {
-			panic(newUnexpectedInputTypeErr(reflect.TypeOf(in), input.getType()))
+		var (
+			in *schema.StreamReader[I]
+			ok bool
+		)
+		if input == nil {
+			sr, sw := schema.Pipe[I](1)
+			var i I
+			sw.Send(i, nil)
+			sw.Close()
+			in = sr
+		} else {
+			in, ok = unpackStreamReader[I](input)
+			if !ok {
+				panic(newUnexpectedInputTypeErr(reflect.TypeOf(in), input.getType()))
+			}
 		}
 
 		tos, err := convertOption[TOption](opts...)
@@ -529,6 +548,11 @@ func toGenericRunnable[I, O any](cr *composableRunnable, ctxWrapper func(ctx con
 			return output, err
 		}
 
+		if out == nil {
+			var o O
+			return o, nil
+		}
+
 		return out.(O), err
 	}
 
@@ -539,6 +563,14 @@ func toGenericRunnable[I, O any](cr *composableRunnable, ctxWrapper func(ctx con
 
 		if err != nil {
 			return nil, err
+		}
+
+		if out == nil {
+			sr, sw := schema.Pipe[O](1)
+			var o O
+			sw.Send(o, nil)
+			sw.Close()
+			return sr, nil
 		}
 
 		output, ok := unpackStreamReader[O](out)

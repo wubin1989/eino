@@ -70,14 +70,8 @@ func (p *preNodeHandlerManager) handle(nodeKey string, value any, isStream bool)
 		return value, nil
 	}
 	if isStream {
-		var newValue streamReader
-		if value == nil {
-			newValue = (streamReader)(nil)
-		} else {
-			newValue = value.(streamReader)
-		}
 		for _, v := range p.h[nodeKey] {
-			value = v.transform(newValue)
+			value = v.transform(value.(streamReader))
 		}
 	} else {
 		for _, v := range p.h[nodeKey] {

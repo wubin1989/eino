@@ -111,6 +111,9 @@ func runnableInvoke(ctx context.Context, r *composableRunnable, input any, opts 
 }
 
 func runnableTransform(ctx context.Context, r *composableRunnable, input any, opts ...any) (any, error) {
+	if input == nil {
+		return r.t(ctx, (streamReader)(nil), opts...)
+	}
 	return r.t(ctx, input.(streamReader), opts...)
 }
 
