@@ -538,7 +538,15 @@ func concatToolCalls(chunks []ToolCall) ([]ToolCall, error) {
 				if toolID == "" {
 					toolID = chunk.ID
 				} else if toolID != chunk.ID {
-					return nil, fmt.Errorf("cannot concat ToolCalls with different tool id: '%s' '%s'", toolID, chunk.ID)
+					sb := strings.Builder{}
+					for _, tc := range chunks {
+						if tc.Index == nil {
+							sb.WriteString(fmt.Sprintf("{index: nil, id: %s, name: %s, content: %s}\n", tc.ID, tc.Function.Name, tc.Function.Arguments))
+						} else {
+							sb.WriteString(fmt.Sprintf("{index: %v, id: %s, name: %s, content: %s}\n", *tc.Index, tc.ID, tc.Function.Name, tc.Function.Arguments))
+						}
+					}
+					return nil, fmt.Errorf("cannot concat ToolCalls with different tool id: '%s' '%s',\n chunks: %s", toolID, chunk.ID, sb.String())
 				}
 
 			}
