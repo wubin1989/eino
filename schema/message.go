@@ -237,6 +237,9 @@ type ChatMessagePart struct {
 	VideoURL *ChatMessageVideoURL `json:"video_url,omitempty"`
 	// FileURL is the file url of the part, it's used when Type is "file_url".
 	FileURL *ChatMessageFileURL `json:"file_url,omitempty"`
+
+	// customized information for model implementation
+	Extra map[string]any `json:"extra,omitempty"`
 }
 
 // LogProbs is the top-level structure containing the log probability information.
