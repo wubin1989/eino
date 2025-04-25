@@ -74,24 +74,8 @@ type checkpoint struct {
 	SubGraphs map[string]*checkpoint
 }
 
-type nodePathKey struct{}
 type stateModifierKey struct{}
 type checkPointKey struct{} // *checkpoint
-
-func getNodeKey(ctx context.Context) (*NodePath, bool) {
-	if key, ok := ctx.Value(nodePathKey{}).(*NodePath); ok {
-		return key, true
-	}
-	return nil, false
-}
-
-func setNodeKey(ctx context.Context, key string) context.Context {
-	path, existed := getNodeKey(ctx)
-	if !existed || len(path.path) == 0 {
-		return context.WithValue(ctx, nodePathKey{}, NewNodePath(key))
-	}
-	return context.WithValue(ctx, nodePathKey{}, NewNodePath(append(path.path, key)...))
-}
 
 func getStateModifier(ctx context.Context) StateModifier {
 	if sm, ok := ctx.Value(stateModifierKey{}).(StateModifier); ok {

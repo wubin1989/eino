@@ -156,7 +156,7 @@ func (r *runner) run(ctx context.Context, isStream bool, input any, opts ...Opti
 	}
 
 	// Extract subgraph
-	path, isSubGraph := getNodeKey(ctx)
+	path, isSubGraph := GetNodeKey(ctx)
 
 	// load checkpoint from ctx/store or init graph
 	initialized := false

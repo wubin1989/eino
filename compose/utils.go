@@ -307,10 +307,30 @@ func extractOption(nodes map[string]*chanCall, opts ...Option) (map[string][]any
 	return optMap, nil
 }
 
-func mapToList(m map[string]any) []any {
-	ret := make([]any, 0, len(m))
-	for _, v := range m {
-		ret = append(ret, v)
+type nodePathKey struct{}
+
+// GetNodeKey retrieves the node path from the context.
+// In a graph execution, this function returns the current node's path.
+// For nodes within subgraphs, it returns the complete path from the root graph to the current node.
+// When called outside of a graph or in the root graph, it will return false as the second return value, indicating no node path is available.
+//
+// Parameters:
+//   - ctx: The context
+//
+// Returns:
+//   - *NodePath: The node path if it exists in the context
+//   - bool: True if the node path exists in the context, false otherwise
+func GetNodeKey(ctx context.Context) (*NodePath, bool) {
+	if key, ok := ctx.Value(nodePathKey{}).(*NodePath); ok {
+		return key, true
 	}
-	return ret
+	return nil, false
+}
+
+func setNodeKey(ctx context.Context, key string) context.Context {
+	path, existed := GetNodeKey(ctx)
+	if !existed || len(path.path) == 0 {
+		return context.WithValue(ctx, nodePathKey{}, NewNodePath(key))
+	}
+	return context.WithValue(ctx, nodePathKey{}, NewNodePath(append(path.path, key)...))
 }
