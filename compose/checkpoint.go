@@ -45,6 +45,60 @@ type CheckPointStore interface {
 	Set(ctx context.Context, checkPointID string, checkPoint []byte) error
 }
 
+// GetStateFromCheckPointStore retrieves and deserializes the state associated with a specific checkPointID
+// from the provided CheckPointStore. It fetches the raw checkpoint data using the store's Get method,
+// unmarshal it, and returns the 'State' field from the checkpoint structure.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - checkPointID: The identifier for the checkpoint whose state is to be retrieved.
+//   - store: The CheckPointStore implementation used to fetch the checkpoint data.
+//
+// Returns:
+//   - state: The deserialized state object (type any).
+//   - existed: True if the checkpoint exists in the store, false otherwise.
+//   - err: An error if retrieval or deserialization fails.
+func GetStateFromCheckPointStore(ctx context.Context, checkPointID string, store CheckPointStore) (state *StateFromCheckPoint, existed bool, err error) {
+	data, existed, err := store.Get(ctx, checkPointID)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get checkpoint data from store for ID %s: %w", checkPointID, err)
+	}
+	if !existed {
+		return nil, false, nil
+	}
+
+	value, err := serialization.Unmarshal(data)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to unmarshal checkpoint data for ID %s: %w", checkPointID, err)
+	}
+
+	cp, ok := value.(*checkpoint)
+	if !ok {
+		return nil, true, fmt.Errorf("unmarshaled data for ID %s is not of type *checkpoint", checkPointID)
+	}
+
+	return extractStateFromCP(cp), true, nil
+}
+
+type StateFromCheckPoint struct {
+	State          any
+	SubGraphStates map[string]*StateFromCheckPoint
+}
+
+func extractStateFromCP(cp *checkpoint) (state *StateFromCheckPoint) {
+	if cp == nil {
+		return nil
+	}
+	state = &StateFromCheckPoint{
+		State:          cp.State,
+		SubGraphStates: map[string]*StateFromCheckPoint{},
+	}
+	for k, v := range cp.SubGraphs {
+		state.SubGraphStates[k] = extractStateFromCP(v)
+	}
+	return state
+}
+
 func WithCheckPointStore(store CheckPointStore) GraphCompileOption {
 	return func(o *graphCompileOptions) {
 		o.checkPointStore = store

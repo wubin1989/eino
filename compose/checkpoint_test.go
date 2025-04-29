@@ -58,7 +58,7 @@ func TestSimpleCheckPoint(t *testing.T) {
 	store := newInMemoryStore()
 
 	g := NewGraph[string, string](WithGenLocalState(func(ctx context.Context) (state *testStruct) {
-		return &testStruct{A: ""}
+		return &testStruct{A: "init"}
 	}))
 
 	err := g.AddLambdaNode("1", InvokableLambda(func(ctx context.Context, input string) (output string, err error) {
@@ -86,10 +86,15 @@ func TestSimpleCheckPoint(t *testing.T) {
 	info, ok := ExtractInterruptInfo(err)
 	assert.True(t, ok)
 	assert.Equal(t, &InterruptInfo{
-		State:       &testStruct{A: ""},
+		State:       &testStruct{A: "init"},
 		BeforeNodes: []string{"2"},
 		AfterNodes:  []string{"1"},
 	}, info)
+
+	s, existed, err := GetStateFromCheckPointStore(ctx, "1", store)
+	assert.NoError(t, err)
+	assert.True(t, existed)
+	assert.Equal(t, &StateFromCheckPoint{State: &testStruct{A: "init"}, SubGraphStates: map[string]*StateFromCheckPoint{}}, s)
 
 	result, err := r.Invoke(ctx, "start", WithCheckPointID("1"), WithStateModifier(func(ctx context.Context, path NodePath, state any) error {
 		assert.Equal(t, 0, len(path.path))
@@ -104,7 +109,7 @@ func TestSimpleCheckPoint(t *testing.T) {
 	info, ok = ExtractInterruptInfo(err)
 	assert.True(t, ok)
 	assert.Equal(t, &InterruptInfo{
-		State:       &testStruct{A: ""},
+		State:       &testStruct{A: "init"},
 		BeforeNodes: []string{"2"},
 		AfterNodes:  []string{"1"},
 	}, info)
