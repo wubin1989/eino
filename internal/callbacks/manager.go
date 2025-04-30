@@ -22,6 +22,7 @@ type manager struct {
 	globalHandlers []Handler
 	handlers       []Handler
 	runInfo        *RunInfo
+	fromUser       bool
 }
 
 var GlobalHandlers []Handler

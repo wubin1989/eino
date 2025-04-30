@@ -40,7 +40,7 @@ func EnsureRunInfo(ctx context.Context, typ string, comp components.Component) c
 	if !ok {
 		return ctx
 	}
-	if cbm.runInfo != nil && (cbm.runInfo.Type != typ || cbm.runInfo.Component != comp) {
+	if !cbm.fromUser && cbm.runInfo != nil && (cbm.runInfo.Type != typ || cbm.runInfo.Component != comp) {
 		return ctxWithManager(ctx, cbm.withRunInfo(&RunInfo{
 			Type:      typ,
 			Component: comp,
@@ -55,7 +55,10 @@ func ReuseHandlers(ctx context.Context, info *RunInfo) context.Context {
 		return ctx
 	}
 
-	return ctxWithManager(ctx, cbm.withRunInfo(info))
+	cbm = cbm.withRunInfo(info)
+	cbm.fromUser = true
+
+	return ctxWithManager(ctx, cbm)
 }
 
 func AppendHandlers(ctx context.Context, info *RunInfo, handlers ...Handler) context.Context {
