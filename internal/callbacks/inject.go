@@ -24,8 +24,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-type CtxManagerKey struct{}
-
 func InitCallbacks(ctx context.Context, info *RunInfo, handlers ...Handler) context.Context {
 	mgr, ok := newManager(info, handlers...)
 	if ok {
@@ -40,11 +38,11 @@ func EnsureRunInfo(ctx context.Context, typ string, comp components.Component) c
 	if !ok {
 		return ctx
 	}
-	if cbm.runInfo != nil && (cbm.runInfo.Type != typ || cbm.runInfo.Component != comp) {
-		return ctxWithManager(ctx, cbm.withRunInfo(&RunInfo{
+	if cbm.runInfo == nil {
+		return ReuseHandlers(ctx, &RunInfo{
 			Type:      typ,
 			Component: comp,
-		}))
+		})
 	}
 	return ctx
 }
@@ -54,7 +52,6 @@ func ReuseHandlers(ctx context.Context, info *RunInfo) context.Context {
 	if !ok {
 		return ctx
 	}
-
 	return ctxWithManager(ctx, cbm.withRunInfo(info))
 }
 
@@ -68,21 +65,37 @@ func AppendHandlers(ctx context.Context, info *RunInfo, handlers ...Handler) con
 
 type Handle[T any] func(context.Context, T, *RunInfo, []Handler) (context.Context, T)
 
-func On[T any](ctx context.Context, inOut T, handle Handle[T], timing CallbackTiming) (context.Context, T) {
+func On[T any](ctx context.Context, inOut T, handle Handle[T], timing CallbackTiming, start bool) (context.Context, T) {
 	mgr, ok := managerFromCtx(ctx)
 	if !ok {
 		return ctx, inOut
 	}
+	nMgr := *mgr
 
-	hs := make([]Handler, 0, len(mgr.handlers)+len(mgr.globalHandlers))
-	for _, handler := range append(mgr.handlers, mgr.globalHandlers...) {
+	var info *RunInfo
+	if start {
+		info = nMgr.runInfo
+		nMgr.runInfo = nil
+		ctx = context.WithValue(ctx, CtxRunInfoKey{}, info)
+	} else {
+		if nMgr.runInfo != nil {
+			info = nMgr.runInfo
+		} else {
+			info, _ = ctx.Value(CtxRunInfoKey{}).(*RunInfo)
+		}
+	}
+
+	hs := make([]Handler, 0, len(nMgr.handlers)+len(nMgr.globalHandlers))
+	for _, handler := range append(nMgr.handlers, nMgr.globalHandlers...) {
 		timingChecker, ok_ := handler.(TimingChecker)
-		if !ok_ || timingChecker.Needed(ctx, mgr.runInfo, timing) {
+		if !ok_ || timingChecker.Needed(ctx, info, timing) {
 			hs = append(hs, handler)
 		}
 	}
 
-	return handle(ctx, inOut, mgr.runInfo, hs)
+	var out T
+	ctx, out = handle(ctx, inOut, info, hs)
+	return ctxWithManager(ctx, &nMgr), out
 }
 
 func OnStartHandle[T any](ctx context.Context, input T,
