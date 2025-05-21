@@ -18,6 +18,7 @@ package react
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/cloudwego/eino/components/model"
@@ -159,6 +160,13 @@ type Agent struct {
 // the default StreamToolCallChecker may not work properly since it only checks the first chunk for tool calls.
 // In such cases, you need to implement a custom StreamToolCallChecker that can properly detect tool calls.
 func NewAgent(ctx context.Context, config *AgentConfig) (_ *Agent, err error) {
+	if config == nil {
+		return nil, errors.New("config is required")
+	}
+	if len(config.ToolsConfig.Tools) <= 0 {
+		return nil, errors.New("tools is required")
+	}
+
 	var (
 		chatModel       model.BaseChatModel
 		toolsNode       *compose.ToolsNode
