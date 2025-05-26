@@ -344,3 +344,7 @@ func (r *Agent) Stream(ctx context.Context, input []*schema.Message, opts ...age
 func (r *Agent) ExportGraph() (compose.AnyGraph, []compose.GraphAddNodeOpt) {
 	return r.graph, r.graphAddNodeOpts
 }
+
+func init() {
+	_ = compose.RegisterSerializableType[*state]("react_state")
+}
