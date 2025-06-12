@@ -165,7 +165,7 @@ func (i *invokableTool[T, D]) InvokableRun(ctx context.Context, arguments string
 			return "", fmt.Errorf("[LocalFunc] failed to marshal output, toolName=%s, err=%w", i.getToolName(), err)
 		}
 	} else {
-		output, err = defaultMarshalOutput(ctx, resp)
+		output, err = defaultMarshalOutput(resp)
 		if err != nil {
 			return "", fmt.Errorf("[LocalFunc] failed to marshal output in json, toolName=%s, err=%w", i.getToolName(), err)
 		}
@@ -186,7 +186,7 @@ func (i *invokableTool[T, D]) getToolName() string {
 	return i.info.Name
 }
 
-func defaultMarshalOutput(ctx context.Context, output any) (string, error) {
+func defaultMarshalOutput(output any) (string, error) {
 	switch v := output.(type) {
 	case string:
 		return v, nil
