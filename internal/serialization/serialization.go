@@ -92,8 +92,23 @@ func Marshal(v interface{}) ([]byte, error) {
 }
 
 func Unmarshal(data []byte) (any, error) {
+	typ := struct {
+		Type any
+	}{}
+	err := sonic.Unmarshal(data, &typ)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal check type fail: %w", err)
+	}
+	if _, ok := typ.Type.(map[string]any); !ok {
+		// This is a compatible logic for a mistaken upgrade that led to an inconsistent serialization of checkpoint content.
+		// A key incompatibility lies in the 'Type' field of the root structure.
+		// In the previous version, 'Type' was an optional string, while in the later version, it is a mandatory object.
+		// Therefore, the type of 'Type' is used here as a flag to differentiate between the two versions.
+		return oldUnmarshal(data)
+	}
+
 	is := &internalStruct{}
-	err := sonic.Unmarshal(data, is)
+	err = sonic.Unmarshal(data, is)
 	if err != nil {
 		return nil, err
 	}
