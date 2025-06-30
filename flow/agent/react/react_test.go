@@ -126,9 +126,7 @@ func TestReact(t *testing.T) {
 	}, agent.WithComposeOptions(compose.WithCallbacks(callbackForTest)))
 	assert.Nil(t, err)
 
-	if out != nil {
-		t.Log(out.Content)
-	}
+	assert.Equal(t, schema.Tool, out.Role)
 }
 
 func TestReactStream(t *testing.T) {
