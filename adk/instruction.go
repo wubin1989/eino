@@ -23,7 +23,10 @@ import (
 )
 
 const (
-	TransferToAgentInstruction = `Available other agents: %s
+	TransferToAgentInstruction = `Your Agent name: %s
+Your Agent description: %s
+
+Available other agents: %s
 
 Decision rule:
 - If you're best suited for the question according to your description: ANSWER
@@ -32,12 +35,13 @@ Decision rule:
 When transferring: OUTPUT ONLY THE FUNCTION CALL`
 )
 
-func genTransferToAgentInstruction(ctx context.Context, agents []Agent) string {
+func defaultTransferToAgentInstruction(ctx context.Context, name, desc string, subAgents []Agent) string {
 	var sb strings.Builder
-	for _, agent := range agents {
+	for _, agent := range subAgents {
 		sb.WriteString(fmt.Sprintf("\n- Agent name: %s\n  Agent description: %s",
 			agent.Name(ctx), agent.Description(ctx)))
 	}
 
-	return fmt.Sprintf(TransferToAgentInstruction, sb.String(), TransferToAgentToolName)
+	return fmt.Sprintf(TransferToAgentInstruction, name, desc,
+		sb.String(), TransferToAgentToolName)
 }

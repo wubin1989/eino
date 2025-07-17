@@ -156,19 +156,6 @@ const (
 )
 
 var (
-	toolInfoTransferToAgent = &schema.ToolInfo{
-		Name: TransferToAgentToolName,
-		Desc: TransferToAgentToolDesc,
-
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"agent_name": {
-				Desc:     "the name of the agent to transfer to",
-				Required: true,
-				Type:     schema.String,
-			},
-		}),
-	}
-
 	ToolInfoExit = &schema.ToolInfo{
 		Name: "exit",
 		Desc: "Exit the agent process and return the final result.",
@@ -208,10 +195,24 @@ func (et ExitTool) InvokableRun(ctx context.Context, argumentsInJSON string, _ .
 	return params.FinalResult, nil
 }
 
-type transferToAgent struct{}
+type transferToAgent struct {
+	accessibleAgents []string
+}
 
 func (tta transferToAgent) Info(_ context.Context) (*schema.ToolInfo, error) {
-	return toolInfoTransferToAgent, nil
+	return &schema.ToolInfo{
+		Name: TransferToAgentToolName,
+		Desc: TransferToAgentToolDesc,
+
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"agent_name": {
+				Desc:     "the name of the agent to transfer to",
+				Required: true,
+				Type:     schema.String,
+				Enum:     tta.accessibleAgents,
+			},
+		}),
+	}, nil
 }
 
 func transferToAgentToolOutput(destName string) string {
@@ -399,10 +400,15 @@ func (a *ChatModelAgent) buildRunFunc(ctx context.Context) runFunc {
 		}
 
 		if len(transferToAgents) > 0 {
-			transferInstruction := genTransferToAgentInstruction(ctx, transferToAgents)
+			transferInstruction := defaultTransferToAgentInstruction(ctx, a.Name(ctx), a.Description(ctx), transferToAgents)
 			instruction = concatInstructions(instruction, transferInstruction)
 
-			toolsNodeConf.Tools = append(toolsNodeConf.Tools, &transferToAgent{})
+			accessibleAgents := make([]string, 0, len(transferToAgents))
+			for _, agent := range transferToAgents {
+				accessibleAgents = append(accessibleAgents, agent.Name(ctx))
+			}
+
+			toolsNodeConf.Tools = append(toolsNodeConf.Tools, &transferToAgent{accessibleAgents: accessibleAgents})
 			returnDirectly[TransferToAgentToolName] = true
 		}
 
@@ -460,8 +466,6 @@ func (a *ChatModelAgent) buildRunFunc(ctx context.Context) runFunc {
 					event = &AgentEvent{Err: err}
 					generator.Send(event)
 				}
-
-				generator.Close()
 			}
 
 			return
@@ -522,8 +526,6 @@ func (a *ChatModelAgent) buildRunFunc(ctx context.Context) runFunc {
 					msgStream.Close()
 				}
 			}
-
-			generator.Close()
 		}
 	})
 
