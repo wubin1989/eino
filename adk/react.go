@@ -159,7 +159,7 @@ func newReact(ctx context.Context, config *reactConfig) (reactGraph, error) {
 
 	toolCallCheck := config.streamToolCallChecker
 	if toolCallCheck == nil {
-		toolCallCheck = firstChunkStreamToolCallChecker
+		toolCallCheck = isStreamToolCallChecker
 	}
 
 	branch := compose.NewStreamGraphBranch(
@@ -223,7 +223,7 @@ func newReact(ctx context.Context, config *reactConfig) (reactGraph, error) {
 	return g, nil
 }
 
-func firstChunkStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+func isStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
 	defer sr.Close()
 
 	for {
@@ -231,6 +231,7 @@ func firstChunkStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[
 		if err == io.EOF {
 			return false, nil
 		}
+
 		if err != nil {
 			return false, err
 		}
@@ -238,11 +239,5 @@ func firstChunkStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[
 		if len(msg.ToolCalls) > 0 {
 			return true, nil
 		}
-
-		if len(msg.Content) == 0 { // skip empty chunks at the front
-			continue
-		}
-
-		return false, nil
 	}
 }
