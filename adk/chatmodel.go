@@ -83,6 +83,21 @@ type ChatModelAgentConfig struct {
 	// optional
 	GenModelInput GenModelInput
 
+	// StreamOutputHandler is a function to determine whether the model's streaming output contains tool calls.
+	// Different models have different ways of outputting tool calls in streaming mode:
+	// - Some models (like OpenAI) output tool calls directly
+	// - Others (like Claude) output text first, then tool calls
+	// This handler allows custom logic to check for tool calls in the stream.
+	// It should return:
+	// - true if the output contains tool calls and agent should continue processing
+	// - false if no tool calls and agent should stop
+	// Note: This field only needs to be configured when using streaming mode
+	// Note: The handler MUST close the modelOutput stream before returning
+	// Optional. By default, it checks if the first chunk contains tool calls.
+	// Note: The default implementation does not work well with Claude, which typically outputs tool calls after text content.
+	// Note: If your ChatModel doesn't output tool calls first, you can try adding prompts to constrain the model from generating extra text during the tool call.
+	StreamToolCallChecker func(ctx context.Context, modelOutput MessageStream) (bool, error)
+
 	// Exit tool. Optional, defaults to nil, which will generate an Exit Action.
 	// The built-in implementation is 'ExitTool'
 	Exit tool.BaseTool
@@ -101,7 +116,8 @@ type ChatModelAgent struct {
 	model       model.ToolCallingChatModel
 	toolsConfig ToolsConfig
 
-	genModelInput GenModelInput
+	genModelInput         GenModelInput
+	streamToolCallChecker func(ctx context.Context, modelOutput MessageStream) (bool, error)
 
 	outputKey string
 	maxStep   int

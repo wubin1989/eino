@@ -18,7 +18,6 @@ package adk
 
 import (
 	"context"
-	"errors"
 	"io"
 
 	"github.com/cloudwego/eino/components/model"
@@ -68,6 +67,8 @@ type reactConfig struct {
 	toolsConfig *compose.ToolsNodeConfig
 
 	toolsReturnDirectly map[string]bool
+
+	streamToolCallChecker func(ctx context.Context, modelOutput MessageStream) (bool, error)
 
 	agentName string
 }
@@ -156,30 +157,23 @@ func newReact(ctx context.Context, config *reactConfig) (reactGraph, error) {
 
 	_ = g.AddEdge(compose.START, chatModel_)
 
-	toolCallCheck := func(ctx context.Context, sMsg MessageStream) (string, error) {
-		defer sMsg.Close()
-		for {
-			chunk, err_ := sMsg.Recv()
-			if err_ != nil {
-				if errors.Is(err_, io.EOF) {
-					return compose.END, nil
-				}
+	toolCallCheck := config.streamToolCallChecker
+	if toolCallCheck == nil {
+		toolCallCheck = firstChunkStreamToolCallChecker
+	}
 
+	branch := compose.NewStreamGraphBranch(
+		func(ctx context.Context, sMsg MessageStream) (string, error) {
+			isToolCall, err_ := toolCallCheck(ctx, sMsg)
+			if err_ != nil {
 				return "", err_
 			}
-
-			if len(chunk.ToolCalls) > 0 {
+			if isToolCall {
 				return toolNode_, nil
 			}
-
-			if len(chunk.Content) == 0 { // skip empty chunks at the front
-				continue
-			}
-
 			return compose.END, nil
-		}
-	}
-	branch := compose.NewStreamGraphBranch(toolCallCheck, map[string]bool{compose.END: true, toolNode_: true})
+		},
+		map[string]bool{compose.END: true, toolNode_: true})
 	_ = g.AddBranch(chatModel_, branch)
 
 	if len(config.toolsReturnDirectly) == 0 {
@@ -227,4 +221,28 @@ func newReact(ctx context.Context, config *reactConfig) (reactGraph, error) {
 	}
 
 	return g, nil
+}
+
+func firstChunkStreamToolCallChecker(_ context.Context, sr *schema.StreamReader[*schema.Message]) (bool, error) {
+	defer sr.Close()
+
+	for {
+		msg, err := sr.Recv()
+		if err == io.EOF {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+
+		if len(msg.ToolCalls) > 0 {
+			return true, nil
+		}
+
+		if len(msg.Content) == 0 { // skip empty chunks at the front
+			continue
+		}
+
+		return false, nil
+	}
 }
