@@ -231,7 +231,7 @@ func (c *Chain[I, O]) AppendLambda(node *Lambda, opts ...GraphAddNodeOpt) *Chain
 	return c
 }
 
-// AppendEmbedding add a Embedding node to the chain.
+// AppendEmbedding add an Embedding node to the chain.
 // e.g.
 //
 //	embedder, err := openai.NewEmbedder(ctx, config)
@@ -239,6 +239,18 @@ func (c *Chain[I, O]) AppendLambda(node *Lambda, opts ...GraphAddNodeOpt) *Chain
 //	chain.AppendEmbedding(embedder)
 func (c *Chain[I, O]) AppendEmbedding(node embedding.Embedder, opts ...GraphAddNodeOpt) *Chain[I, O] {
 	gNode, options := toEmbeddingNode(node, opts...)
+	c.addNode(gNode, options)
+	return c
+}
+
+// AppendMultiModalEmbedding add a MultiModalEmbedding node to the chain.
+// e.g.
+//
+//	embedder, err := ark.NewEmbedder(ctx, config)
+//	if err != nil {...}
+//	chain.AppendMultiModalEmbedding(embedder)
+func (c *Chain[I, O]) AppendMultiModalEmbedding(node embedding.MultiModalEmbedder, opts ...GraphAddNodeOpt) *Chain[I, O] {
+	gNode, options := toMultiModalEmbeddingNode(node, opts...)
 	c.addNode(gNode, options)
 	return c
 }

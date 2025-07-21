@@ -306,6 +306,19 @@ func (g *graph) AddEmbeddingNode(key string, node embedding.Embedder, opts ...Gr
 	return g.addNode(key, gNode, options)
 }
 
+// AddMultiModalEmbeddingNode adds a node that implements embedding.MultiModalEmbedder.
+// e.g.
+//
+//	embeddingNode, err := ark.NewEmbedder(ctx, &ark.EmbeddingConfig{
+//		Model: "doubao-embedding-vision-250615",
+//	})
+//
+//	graph.AddMultiModalEmbeddingNode("embedding_node_key", embeddingNode)
+func (g *graph) AddMultiModalEmbeddingNode(key string, node embedding.MultiModalEmbedder, opts ...GraphAddNodeOpt) error {
+	gNode, options := toMultiModalEmbeddingNode(node, opts...)
+	return g.addNode(key, gNode, options)
+}
+
 // AddRetrieverNode adds a node that implements retriever.Retriever.
 // e.g.
 //

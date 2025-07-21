@@ -50,6 +50,8 @@ type ComponentExtra struct {
 type CallbackInput struct {
 	// Texts is the texts to be embedded.
 	Texts []string
+	// Contents is the multi-modal contents to be embedded.
+	Contents []*Content
 	// Config is the config for the embedding.
 	Config *Config
 	// Extra is the extra information for the callback.

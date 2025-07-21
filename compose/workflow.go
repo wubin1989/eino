@@ -107,6 +107,11 @@ func (wf *Workflow[I, O]) AddEmbeddingNode(key string, embedding embedding.Embed
 	return wf.initNode(key)
 }
 
+func (wf *Workflow[I, O]) AddMultiModalEmbeddingNode(key string, embedding embedding.MultiModalEmbedder, opts ...GraphAddNodeOpt) *WorkflowNode {
+	_ = wf.g.AddMultiModalEmbeddingNode(key, embedding, opts...)
+	return wf.initNode(key)
+}
+
 func (wf *Workflow[I, O]) AddIndexerNode(key string, indexer indexer.Indexer, opts ...GraphAddNodeOpt) *WorkflowNode {
 	_ = wf.g.AddIndexerNode(key, indexer, opts...)
 	return wf.initNode(key)

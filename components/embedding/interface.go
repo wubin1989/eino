@@ -16,9 +16,19 @@
 
 package embedding
 
-import "context"
+import (
+	"context"
+
+	"github.com/cloudwego/eino/schema"
+)
 
 //go:generate  mockgen -destination ../../internal/mock/components/embedding/Embedding_mock.go --package embedding -source interface.go
 type Embedder interface {
 	EmbedStrings(ctx context.Context, texts []string, opts ...Option) ([][]float64, error) // invoke
+}
+
+type Content schema.ChatMessagePart
+
+type MultiModalEmbedder interface {
+	EmbedContents(ctx context.Context, contents []*Content, opts ...Option) ([][]float64, error)
 }

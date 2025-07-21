@@ -203,6 +203,19 @@ func (cb *ChainBranch) AddEmbedding(key string, node embedding.Embedder, opts ..
 	return cb.addNode(key, gNode, options)
 }
 
+// AddMultiModalEmbedding adds a MultiModalEmbedding node to the branch.
+// eg.
+//
+//	embeddingNode, err := ark.NewEmbedder(ctx, &ark.EmbeddingConfig{
+//		Model: "doubao-embedding-vision-250615",
+//	})
+//
+//	cb.AddMultiModalEmbedding("embedding_node_key", embeddingNode)
+func (cb *ChainBranch) AddMultiModalEmbedding(key string, node embedding.MultiModalEmbedder, opts ...GraphAddNodeOpt) *ChainBranch {
+	gNode, options := toMultiModalEmbeddingNode(node, opts...)
+	return cb.addNode(key, gNode, options)
+}
+
 // AddRetriever adds a Retriever node to the branch.
 // eg.
 //

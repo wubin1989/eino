@@ -123,6 +123,19 @@ func (p *Parallel) AddEmbedding(outputKey string, node embedding.Embedder, opts 
 	return p.addNode(outputKey, gNode, options)
 }
 
+// AddMultiModalEmbedding adds a MultiModalEmbedding node to the parallel.
+// eg.
+//
+//	embeddingNode, err := ark.NewEmbedder(ctx, &ark.EmbeddingConfig{
+//		Model: "doubao-embedding-vision-250615",
+//	})
+//
+//	p.AddMultiModalEmbedding("output_key01", embeddingNode)
+func (p *Parallel) AddMultiModalEmbedding(outputKey string, node embedding.MultiModalEmbedder, opts ...GraphAddNodeOpt) *Parallel {
+	gNode, options := toMultiModalEmbeddingNode(node, append(opts, WithOutputKey(outputKey))...)
+	return p.addNode(outputKey, gNode, options)
+}
+
 // AddRetriever adds a retriever node to the parallel.
 // eg.
 //
