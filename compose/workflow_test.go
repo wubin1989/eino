@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cloudwego/eino/components/prompt"
@@ -1494,5 +1495,80 @@ func TestCustomExtractor(t *testing.T) {
 		})
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]int{"a": 1, "b": 2}, result)
+	})
+}
+
+func TestStreamMapToNestedField(t *testing.T) {
+	t.Run("from entire stream to nested field", func(t *testing.T) {
+		wf := NewWorkflow[string, map[string]any]()
+		wf.End().AddInput(START, ToFieldPath([]string{"a", "b"}))
+		r, err := wf.Compile(context.Background())
+		require.NoError(t, err)
+		result, err := r.Transform(context.Background(), schema.StreamReaderFromArray([]string{"1", "2"}))
+		require.NoError(t, err)
+		c, err := result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "1", c["a"].(map[string]any)["b"])
+		c, err = result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "2", c["a"].(map[string]any)["b"])
+		_, err = result.Recv()
+		assert.Equal(t, io.EOF, err)
+	})
+
+	t.Run("from stream's map field to nested field", func(t *testing.T) {
+		wf := NewWorkflow[map[string]any, map[string]any]()
+		wf.End().AddInput(START, MapFieldPaths([]string{"o"}, []string{"a", "b"}))
+		r, err := wf.Compile(context.Background())
+		require.NoError(t, err)
+		result, err := r.Transform(context.Background(), schema.StreamReaderFromArray(
+			[]map[string]any{
+				{
+					"o": "1",
+				}, {
+					"o": "2",
+				},
+			}))
+		require.NoError(t, err)
+		c, err := result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "1", c["a"].(map[string]any)["b"])
+		c, err = result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "2", c["a"].(map[string]any)["b"])
+		_, err = result.Recv()
+		assert.Equal(t, io.EOF, err)
+	})
+
+	t.Run("merge streams to nested fields", func(t *testing.T) {
+		wf := NewWorkflow[map[string]any, map[string]any]()
+		wf.AddPassthroughNode("p").AddInput(START)
+		wf.End().AddInput(START, MapFieldPaths([]string{"o"}, []string{"a", "b"})).
+			AddInput("p", MapFieldPaths([]string{"p"}, []string{"c"}))
+		r, err := wf.Compile(context.Background())
+		require.NoError(t, err)
+		result, err := r.Transform(context.Background(), schema.StreamReaderFromArray(
+			[]map[string]any{
+				{
+					"p": "p",
+				},
+				{
+					"o": "1",
+				}, {
+					"o": "2",
+				},
+			}))
+		require.NoError(t, err)
+		c, err := result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "p", c["c"])
+		c, err = result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "1", c["a"].(map[string]any)["b"])
+		c, err = result.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, "2", c["a"].(map[string]any)["b"])
+		_, err = result.Recv()
+		t.Log(err)
 	})
 }

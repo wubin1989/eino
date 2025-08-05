@@ -567,7 +567,19 @@ func fieldMap(mappings []*FieldMapping, allowMapKeyNotFound bool, uncheckedSourc
 
 func streamFieldMap(mappings []*FieldMapping, uncheckedSourcePaths map[string]FieldPath) func(streamReader) streamReader {
 	return func(input streamReader) streamReader {
-		return packStreamReader(schema.StreamReaderWithConvert(input.toAnyStreamReader(), fieldMap(mappings, true, uncheckedSourcePaths)))
+		return packStreamReader(schema.StreamReaderWithConvert(input.toAnyStreamReader(),
+			func(input any) (result map[string]any, err error) {
+				result, err = fieldMap(mappings, true, uncheckedSourcePaths)(input)
+				if err != nil {
+					return nil, err
+				}
+
+				if len(result) == 0 {
+					return nil, schema.ErrNoValue
+				}
+
+				return result, nil
+			}))
 	}
 }
 
